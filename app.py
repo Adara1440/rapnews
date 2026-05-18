@@ -9,14 +9,55 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 KIE_API_KEY = os.environ.get('KIE_API_KEY', '')
 SITE_PASSWORD = os.environ.get('SITE_PASSWORD', 'news2026')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-preview-05-20')
 
 KIE_CREATE_URL = 'https://api.kie.ai/api/v1/jobs/createTask'
 KIE_STATUS_URL = 'https://api.kie.ai/api/v1/jobs/recordInfo'
 JINA_URL = 'https://r.jina.ai/'
 
+# 啟動時自動偵測最佳可用 Gemini 模型
+# 優先順序：環境變數 > 自動偵測 > fallback
+# 更換模型時只需在 Railway 設定 GEMINI_MODEL 環境變數，不用改程式碼
+_GEMINI_MODEL = None
+
+def get_gemini_model():
+    global _GEMINI_MODEL
+    if _GEMINI_MODEL:
+        return _GEMINI_MODEL
+
+    # 如果有設環境變數，直接用
+    if os.environ.get('GEMINI_MODEL'):
+        _GEMINI_MODEL = os.environ.get('GEMINI_MODEL')
+        print(f'[Gemini] 使用環境變數指定模型：{_GEMINI_MODEL}')
+        return _GEMINI_MODEL
+
+    # 自動偵測，按優先順序嘗試
+    candidates = [
+        'gemini-2.5-flash-preview',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+    ]
+    for model in candidates:
+        try:
+            r = requests.get(
+                f'https://generativelanguage.googleapis.com/v1beta/models/{model}?key={GEMINI_API_KEY}',
+                timeout=5
+            )
+            if r.status_code == 200:
+                _GEMINI_MODEL = model
+                print(f'[Gemini] 自動偵測到可用模型：{_GEMINI_MODEL}')
+                return _GEMINI_MODEL
+        except Exception:
+            continue
+
+    # 最後 fallback
+    _GEMINI_MODEL = 'gemini-2.0-flash'
+    print(f'[Gemini] 自動偵測失敗，使用 fallback：{_GEMINI_MODEL}')
+    return _GEMINI_MODEL
+
 def get_gemini_url():
-    return f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}'
+    model = get_gemini_model()
+    return f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}'
 
 def require_password(f):
     @wraps(f)
@@ -28,15 +69,18 @@ def require_password(f):
     return decorated
 
 def fetch_news(url):
+    # 先試 Jina AI
     try:
         r = requests.get(JINA_URL + url, timeout=15, headers={'Accept': 'text/plain'})
         if r.status_code == 200 and len(r.text) > 200:
             return r.text[:8000]
     except Exception:
         pass
+
+    # 備用：讓 Gemini 直接讀 URL
     try:
         payload = {
-            'contents': [{'parts': [{'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字：' + url}]}],
+            'contents': [{'parts': [{'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字，不要任何格式：' + url}]}],
             'generationConfig': {'temperature': 0}
         }
         r = requests.post(get_gemini_url(), json=payload, timeout=30)
@@ -45,6 +89,7 @@ def fetch_news(url):
             return data['candidates'][0]['content']['parts'][0]['text'][:8000]
     except Exception:
         pass
+
     return None
 
 def parse_gemini_json(raw):
@@ -74,18 +119,32 @@ def call_gemini(prompt):
         }
     }, timeout=90)
     resp = r.json()
+
     if 'error' in resp:
-        raise Exception('Gemini API 錯誤：' + resp['error'].get('message', str(resp['error'])))
+        err_msg = resp['error'].get('message', str(resp['error']))
+        # 如果是模型找不到的錯誤，重置快取讓下次重新偵測
+        if 'not found' in err_msg.lower() or 'not supported' in err_msg.lower():
+            global _GEMINI_MODEL
+            _GEMINI_MODEL = None
+        raise Exception('Gemini API 錯誤：' + err_msg)
+
     if 'candidates' not in resp:
         raise Exception('Gemini 回傳異常：' + str(resp)[:300])
+
     candidate = resp['candidates'][0]
     if candidate.get('finishReason') == 'SAFETY':
         raise Exception('Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文')
+
     return candidate['content']['parts'][0]['text']
 
 @app.route('/')
 def index():
     return send_from_directory('public', 'index.html')
+
+@app.route('/api/model', methods=['GET'])
+@require_password
+def current_model():
+    return jsonify({'model': get_gemini_model()})
 
 @app.route('/api/analyze', methods=['POST'])
 @require_password
@@ -141,9 +200,9 @@ def analyze():
   }},
   "suno_prompt": "Mandarin rap, 115 BPM, clear articulation, energetic flow, no singing, no intro start rap immediately, call and response chant on hook, punchy 808, male vocal only",
   "scenes": [
-    {{"id": 1, "time": "verse1", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
-    {{"id": 2, "time": "verse2", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
-    {{"id": 3, "time": "outro", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}}
+    {{"id": 1, "time": "verse1", "description": "場景描述（10字內中文）", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 2, "time": "verse2", "description": "場景描述", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 3, "time": "outro", "description": "場景描述", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}}
   ]
 }}"""
 
@@ -151,6 +210,7 @@ def analyze():
         raw = call_gemini(prompt)
         result = parse_gemini_json(raw)
         result['original_content'] = news_content[:2000]
+        result['model_used'] = get_gemini_model()
         return jsonify(result)
     except json.JSONDecodeError as e:
         return jsonify({'error': f'AI 回傳格式解析失敗，請重試：{str(e)}'}), 500
@@ -233,12 +293,15 @@ def check_status(task_id):
         }, timeout=15)
         data = r.json().get('data', {})
         state = data.get('state', data.get('status', 'unknown'))
+
         if state in ('success', 'completed'):
             result_json = data.get('resultJson', '{}')
             if isinstance(result_json, str):
                 result_json = json.loads(result_json) if result_json else {}
-            url = (result_json.get('audio_url') or result_json.get('video_url') or
-                   data.get('audioUrl') or data.get('videoUrl') or '')
+            url = (result_json.get('audio_url') or
+                   result_json.get('video_url') or
+                   data.get('audioUrl') or
+                   data.get('videoUrl') or '')
             return jsonify({'status': 'completed', 'url': url, 'raw': data})
         elif state in ('failed', 'error'):
             return jsonify({'status': 'failed', 'error': data.get('errorMessage', '生成失敗')})
