@@ -60,24 +60,81 @@ def require_password(f):
     return decorated
 
 def fetch_news(url):
+    import re as _re
+    # 方法一：直接爬蟲（模擬真實瀏覽器，針對 ETtoday 優化）
     try:
-        r = requests.get(JINA_URL + url, timeout=15, headers={'Accept': 'text/plain'})
+        from bs4 import BeautifulSoup
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8',
+            'Referer': 'https://www.google.com/',
+        }
+        r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+        r.encoding = 'utf-8'
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+
+            # 抓標題
+            title = ''
+            og_t = soup.find('meta', property='og:title')
+            if og_t and og_t.get('content'):
+                title = og_t['content'].strip()
+            elif soup.find('title'):
+                title = _re.sub(r'\s*[-|]\s*(ETtoday|.*)\s*$', '', soup.title.text).strip()
+
+            # 針對 ETtoday 的文章選擇器
+            selectors = [
+                '.story', '.news_article', 'article[itemprop="articleBody"]',
+                '.news-content', 'article', '.article-content', '.post-content',
+            ]
+            article = None
+            for sel in selectors:
+                article = soup.select_one(sel)
+                if article:
+                    break
+
+            if article:
+                for unwanted in article.select(
+                    '.related_news, .ad, script, style, .fb-comments, '
+                    '.photo_pop, aside, .recommend, .tags, .share, '
+                    '.news_keyword, .more_news'
+                ):
+                    unwanted.decompose()
+                paras = article.find_all('p')
+            else:
+                paras = soup.find_all('p')
+
+            noise = ['廣告', '訂閱', 'LINE', 'Copyright', 'JavaScript', 'Cookie',
+                     '請繼續往下閱讀', '推薦閱讀', '延伸閱讀']
+            lines = []
+            for p in paras:
+                t = _re.sub(r'<[^>]+>', '', str(p)).strip()
+                t = _re.sub(r'\s+', ' ', t)
+                if len(t) > 15 and not any(k in t for k in noise):
+                    lines.append(t)
+
+            body = chr(10).join(lines[:60])
+            if len(body) > 100:
+                return ('【標題】' + title + chr(10) + chr(10) + '【內文】' + body)[:8000]
+    except Exception as e:
+        print(f'[fetch_news] 直接爬蟲失敗：{e}')
+
+    # 方法二：Jina AI 備援
+    try:
+        jina_url = 'https://r.jina.ai/' + url
+        r = requests.get(jina_url, timeout=20, headers={
+            'Accept': 'text/plain',
+            'X-Return-Format': 'text',
+            'User-Agent': 'Mozilla/5.0'
+        })
         if r.status_code == 200 and len(r.text) > 200:
             return r.text[:8000]
-    except Exception:
-        pass
-    try:
-        payload = {
-            'contents': [{'parts': [{'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字，不要任何格式：' + url}]}],
-            'generationConfig': {'temperature': 0}
-        }
-        r = requests.post(get_gemini_url(), json=payload, timeout=30)
-        data = r.json()
-        if 'candidates' in data:
-            return data['candidates'][0]['content']['parts'][0]['text'][:8000]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f'[fetch_news] Jina 備援失敗：{e}')
+
     return None
+
 
 def parse_gemini_json(raw):
     start = raw.find('{')
