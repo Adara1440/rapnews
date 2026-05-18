@@ -3,160 +3,401 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>新聞神曲製片工具</title>
+<title>Rap 說新聞</title>
 <style>
 :root {
-  --bg: #0a0a0f;
-  --card: #13131a;
-  --card2: #1a1a24;
-  --border: #2a2a3a;
-  --accent: #7c3aed;
-  --accent2: #a855f7;
-  --gold: #f59e0b;
-  --green: #10b981;
-  --red: #ef4444;
-  --text: #f1f0f5;
-  --muted: #6b6b8a;
-  --radius: 12px;
+  --bg: #FFFBF5;
+  --card: #FFFFFF;
+  --card2: #FFF8EE;
+  --border: #EDE8E0;
+  --accent: #FF6B35;
+  --accent2: #FF8C5A;
+  --purple: #7B2FBE;
+  --purple2: #9B59E8;
+  --green: #00C896;
+  --red: #FF3B5C;
+  --gold: #FFB800;
+  --text: #1A1A1A;
+  --muted: #8A8070;
+  --radius: 16px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, 'PingFang TC', sans-serif; min-height: 100vh; }
-.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
-.logo { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent2), var(--gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.logo-sub { font-size: 13px; color: var(--muted); }
-.main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
-.auth-bar { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; }
-.auth-bar input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, 'PingFang TC', 'Noto Sans TC', sans-serif;
+  font-size: 16px;
+  min-height: 100vh;
+}
+
+/* 音符裝飾背景 */
+body::before {
+  content: '♪ ♫ ♬ ♩ ♪ ♫ ♬ ♩ ♪ ♫';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  padding: 8px 20px;
+  font-size: 18px;
+  color: rgba(255,107,53,0.12);
+  letter-spacing: 24px;
+  pointer-events: none;
+  z-index: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.header {
+  background: linear-gradient(135deg, #FF6B35 0%, #FF8C5A 40%, #7B2FBE 100%);
+  padding: 24px 28px 20px;
+  position: relative;
+  overflow: hidden;
+}
+.header::after {
+  content: '🎤';
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 48px;
+  opacity: 0.3;
+}
+.logo {
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+.logo-sub {
+  font-size: 14px;
+  color: rgba(255,255,255,0.8);
+  margin-top: 4px;
+}
+
+.main { max-width: 960px; margin: 0 auto; padding: 28px 20px; position: relative; z-index: 1; }
+
+.auth-bar {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.auth-bar label { font-size: 15px; color: var(--muted); white-space: nowrap; }
+.auth-bar input {
+  flex: 1;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-size: 16px;
+}
 .auth-bar input:focus { outline: none; border-color: var(--accent); }
-.step-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
-.step-header { padding: 16px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); background: var(--card2); }
-.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
-.step-title { font-size: 15px; font-weight: 600; }
-.step-body { padding: 20px; }
-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 14px; resize: vertical; font-family: inherit; line-height: 1.6; }
+
+.step-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  transition: box-shadow 0.2s;
+}
+.step-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.10); }
+
+.step-header {
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1.5px solid var(--border);
+  background: var(--card2);
+}
+.step-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.step-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.step-body { padding: 24px; }
+
+textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: var(--text);
+  font-size: 16px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.7;
+}
 textarea:focus { outline: none; border-color: var(--accent); }
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent2); }
-.btn-primary:disabled { background: var(--muted); cursor: not-allowed; }
-.btn-gold { background: var(--gold); color: #000; }
-.btn-gold:hover { filter: brightness(1.1); }
-.btn-gold:disabled { background: var(--muted); color: #fff; cursor: not-allowed; }
-.btn-green { background: var(--green); color: #fff; }
-.btn-green:disabled { background: var(--muted); cursor: not-allowed; }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
-.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
-.btn-outline:hover { border-color: var(--accent); color: var(--text); }
-.lyrics-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-.lyrics-label { font-size: 11px; font-weight: 600; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
-.lyric-line { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-.lyric-line input { flex: 1; background: transparent; border: none; border-bottom: 1px solid var(--border); padding: 6px 0; color: var(--text); font-size: 14px; line-height: 1.6; }
-.lyric-line input:focus { outline: none; border-bottom-color: var(--accent); }
-.scene-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
-.scene-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
-.scene-desc { font-size: 14px; font-weight: 500; margin-bottom: 8px; }
-.scene-prompt-edit { width: 100%; background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--muted); font-size: 12px; resize: vertical; font-family: inherit; }
-.scene-prompt-edit:focus { outline: none; border-color: var(--accent); color: var(--text); }
-.video-preview { width: 100%; aspect-ratio: 9/16; max-width: 200px; background: var(--card2); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.video-preview video { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
-.video-placeholder { color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
-.status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
-.status-pending { background: rgba(245,158,11,0.15); color: var(--gold); }
-.status-processing { background: rgba(124,58,237,0.15); color: var(--accent2); }
-.status-completed { background: rgba(16,185,129,0.15); color: var(--green); }
-.status-failed { background: rgba(239,68,68,0.15); color: var(--red); }
-.spinner { width: 14px; height: 14px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  border: none;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(255,107,53,0.4); }
+.btn-primary:disabled { background: #ccc; transform: none; box-shadow: none; cursor: not-allowed; }
+.btn-purple { background: linear-gradient(135deg, var(--purple), var(--purple2)); color: #fff; }
+.btn-purple:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(123,47,190,0.4); }
+.btn-purple:disabled { background: #ccc; transform: none; box-shadow: none; cursor: not-allowed; }
+.btn-green { background: linear-gradient(135deg, #00C896, #00A878); color: #fff; }
+.btn-green:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,200,150,0.4); }
+.btn-green:disabled { background: #ccc; transform: none; box-shadow: none; cursor: not-allowed; }
+.btn-outline {
+  background: transparent;
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  font-size: 14px;
+  padding: 8px 16px;
+}
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm { padding: 8px 16px; font-size: 14px; }
+
+.lyrics-block {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.lyrics-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+.lyric-line { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.lyric-line input {
+  flex: 1;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.lyric-line input:focus { outline: none; border-color: var(--purple); }
+
+.scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.scene-card {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.scene-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.scene-desc { font-size: 17px; font-weight: 700; margin-bottom: 10px; color: var(--text); }
+.scene-prompt-edit {
+  width: 100%;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.scene-prompt-edit:focus { outline: none; border-color: var(--purple); color: var(--text); }
+
+.video-preview {
+  width: 100%;
+  aspect-ratio: 9/16;
+  max-width: 160px;
+  background: var(--card2);
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.video-preview video { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.video-placeholder { color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.status-pending { background: rgba(255,184,0,0.12); color: #CC9200; }
+.status-processing { background: rgba(123,47,190,0.12); color: var(--purple); }
+.status-completed { background: rgba(0,200,150,0.12); color: #009970; }
+.status-failed { background: rgba(255,59,92,0.12); color: var(--red); }
+
+.spinner {
+  width: 16px; height: 16px;
+  border: 2.5px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
-.row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
-.suno-prompt-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
-.suno-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.music-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; display: flex; gap: 14px; align-items: center; }
-.music-card audio { flex: 1; height: 40px; }
+
+.suno-prompt-box {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.suno-label { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+.suno-prompt-box textarea {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.music-card {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.music-card audio { flex: 1; height: 44px; }
+
+.divider { height: 1.5px; background: var(--border); margin: 20px 0; border-radius: 1px; }
+.info-text { font-size: 15px; color: var(--muted); line-height: 1.7; }
+.error-msg {
+  background: rgba(255,59,92,0.08);
+  border: 1.5px solid rgba(255,59,92,0.25);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 15px;
+  color: var(--red);
+  margin-top: 14px;
+  line-height: 1.6;
+}
+.section-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
 .hidden { display: none; }
-.divider { height: 1px; background: var(--border); margin: 16px 0; }
-.info-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
-.success-msg { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--green); margin-top: 12px; }
-.error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--red); margin-top: 12px; }
-.grid-3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.section-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+.song-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, rgba(255,107,53,0.1), rgba(123,47,190,0.1));
+  border: 1.5px solid rgba(255,107,53,0.2);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--purple);
+}
 </style>
 </head>
 <body>
 
 <div class="header">
-  <div>
-    <div class="logo">🎵 新聞神曲</div>
-    <div class="logo-sub">新聞網址 → 洗腦 Rap → 短影音素材</div>
-  </div>
+  <div class="logo">🎤 Rap 說新聞</div>
+  <div class="logo-sub">貼上新聞網址 → AI 生洗腦歌詞 → 音樂 + 畫面素材</div>
 </div>
 
 <div class="main">
 
-  <!-- 密碼 -->
   <div class="auth-bar">
-    <span style="font-size:13px;color:var(--muted);white-space:nowrap">🔑 密碼</span>
+    <label>🔑 密碼</label>
     <input type="password" id="password" placeholder="輸入存取密碼" />
   </div>
 
-  <!-- Step 1: 輸入新聞 -->
+  <!-- Step 1 -->
   <div class="step-card">
     <div class="step-header">
       <div class="step-num">1</div>
       <div class="step-title">貼上新聞網址或內文</div>
     </div>
     <div class="step-body">
-      <textarea id="news-input" rows="4" placeholder="貼上新聞網址（如 https://www.ettoday.net/news/...）或直接貼內文"></textarea>
+      <textarea id="news-input" rows="4" placeholder="貼上新聞網址（如 https://www.ettoday.net/news/...）&#10;或直接貼入新聞內文"></textarea>
       <div class="section-actions">
         <button class="btn btn-primary" id="btn-analyze" onclick="analyzeNews()">
           <span id="analyze-spinner" class="spinner hidden"></span>
-          分析新聞，生成歌詞
+          🎵 分析新聞，生成 Rap 歌詞
         </button>
       </div>
       <div id="analyze-error" class="error-msg hidden"></div>
     </div>
   </div>
 
-  <!-- Step 2: 歌詞編輯 -->
+  <!-- Step 2 -->
   <div class="step-card hidden" id="step2">
     <div class="step-header">
       <div class="step-num">2</div>
-      <div class="step-title">確認歌詞 <span id="song-title-display" style="color:var(--accent2)"></span></div>
+      <div class="step-title">
+        確認歌詞
+        <span id="song-title-display" class="song-chip" style="margin-left:10px"></span>
+      </div>
     </div>
     <div class="step-body">
       <div id="lyrics-editor"></div>
-
       <div class="divider"></div>
-
       <div class="suno-prompt-box">
-        <div class="suno-label">Suno 音樂風格指令（可編輯）</div>
-        <textarea id="suno-prompt" rows="2" style="background:transparent;border:none;padding:0;color:var(--text);font-size:13px;margin-top:4px"></textarea>
+        <div class="suno-label">🎸 Suno 音樂風格指令（可直接編輯）</div>
+        <textarea id="suno-prompt" rows="2"></textarea>
       </div>
-
       <div class="section-actions">
-        <button class="btn btn-gold" id="btn-music" onclick="generateMusic()">
+        <button class="btn btn-purple" id="btn-music" onclick="generateMusic()">
           <span id="music-spinner" class="spinner hidden"></span>
-          生成音樂
+          🎶 生成兩個版本的音樂
         </button>
-        <span class="info-text">生成兩個版本，你選一個</span>
+        <span class="info-text">生成後選一個你喜歡的</span>
       </div>
       <div id="music-error" class="error-msg hidden"></div>
       <div id="music-area"></div>
     </div>
   </div>
 
-  <!-- Step 3: 畫面生成 -->
+  <!-- Step 3 -->
   <div class="step-card hidden" id="step3">
     <div class="step-header">
       <div class="step-num">3</div>
-      <div class="step-title">生成關鍵畫面</div>
+      <div class="step-title">生成關鍵畫面（3 個片段）</div>
     </div>
     <div class="step-body">
-      <div id="scenes-editor"></div>
-
+      <div class="scene-grid" id="scenes-editor"></div>
       <div class="section-actions">
         <button class="btn btn-green" id="btn-videos" onclick="generateAllVideos()">
           <span id="videos-spinner" class="spinner hidden"></span>
-          全部生成畫面（3片段）
+          🎬 全部生成畫面
         </button>
         <span class="info-text">每片段約 9.6 點，共約 29 點</span>
       </div>
@@ -164,17 +405,15 @@ textarea:focus { outline: none; border-color: var(--accent); }
     </div>
   </div>
 
-  <!-- Step 4: 下載素材 -->
+  <!-- Step 4 -->
   <div class="step-card hidden" id="step4">
     <div class="step-header">
       <div class="step-num">4</div>
       <div class="step-title">下載素材，進剪映組裝</div>
     </div>
     <div class="step-body">
-      <div class="info-text" style="margin-bottom:12px">
-        ① 下載選定的音樂 MP3<br>
-        ② 下載 3 個畫面片段 MP4<br>
-        ③ 進剪映：匯入音樂 → 文稿匹配字幕 → 插入畫面片段 → 輸出 9:16
+      <div class="info-text" style="margin-bottom:16px">
+        ① 下載選定的音樂 MP3 &nbsp;②  下載 3 個畫面片段 MP4 &nbsp;③ 進剪映：匯入音樂 → 文稿匹配字幕 → 插入畫面 → 輸出 9:16
       </div>
       <div id="download-area"></div>
     </div>
@@ -184,10 +423,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
 
 <script>
 let analysisResult = null;
-let musicTasks = [];
 let videoTasks = [];
 let selectedMusicUrl = '';
-let pollingIntervals = {};
 
 function getHeaders() {
   return {
@@ -200,7 +437,7 @@ function showError(id, msg) {
   const el = document.getElementById(id);
   el.textContent = msg;
   el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 6000);
+  setTimeout(() => el.classList.add('hidden'), 8000);
 }
 
 function buildLyricsText() {
@@ -210,7 +447,7 @@ function buildLyricsText() {
   sections.forEach(s => {
     full += labels[s] + '\n';
     document.querySelectorAll(`.lyric-input[data-section="${s}"]`).forEach(inp => {
-      full += inp.value + '\n';
+      if (inp.value.trim()) full += inp.value + '\n';
     });
     full += '\n';
   });
@@ -220,31 +457,22 @@ function buildLyricsText() {
 async function analyzeNews() {
   const input = document.getElementById('news-input').value.trim();
   if (!input) return alert('請輸入新聞網址或內文');
-
   const btn = document.getElementById('btn-analyze');
   const spinner = document.getElementById('analyze-spinner');
   btn.disabled = true;
   spinner.classList.remove('hidden');
-
   try {
-    const r = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ news_input: input })
-    });
+    const r = await fetch('/api/analyze', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ news_input: input }) });
     const data = await r.json();
     if (!r.ok) return showError('analyze-error', data.error || '分析失敗');
-
     analysisResult = data;
     renderLyrics(data);
     renderScenes(data.scenes);
-
-    document.getElementById('song-title-display').textContent = `— ${data.title}`;
+    document.getElementById('song-title-display').textContent = '♪ ' + (data.title || '新聞神曲');
     document.getElementById('suno-prompt').value = data.suno_prompt || '';
     document.getElementById('step2').classList.remove('hidden');
     document.getElementById('step3').classList.remove('hidden');
     document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
-
   } catch(e) {
     showError('analyze-error', '連線失敗：' + e.message);
   } finally {
@@ -255,22 +483,18 @@ async function analyzeNews() {
 
 function renderLyrics(data) {
   const sections = [
-    { key: 'verse1', label: 'Verse 1 — 核心資訊' },
-    { key: 'hook', label: 'Hook — 洗腦副歌' },
-    { key: 'verse2', label: 'Verse 2 — 事件背景' },
-    { key: 'verse3', label: 'Verse 3 — 來龍去脈' },
-    { key: 'outro', label: 'Outro — 收尾' }
+    { key: 'verse1', label: '🎤 Verse 1 — 核心資訊' },
+    { key: 'hook',   label: '🔁 Hook — 洗腦副歌' },
+    { key: 'verse2', label: '🎤 Verse 2 — 事件背景' },
+    { key: 'verse3', label: '🎤 Verse 3 — 來龍去脈' },
+    { key: 'outro',  label: '🎤 Outro — 收尾' }
   ];
-
   let html = '';
   sections.forEach(s => {
     const lines = data.lyrics[s.key] || [];
-    html += `<div class="lyrics-block">
-      <div class="lyrics-label">${s.label}</div>`;
+    html += `<div class="lyrics-block"><div class="lyrics-label">${s.label}</div>`;
     lines.forEach((line, i) => {
-      html += `<div class="lyric-line">
-        <input class="lyric-input" data-section="${s.key}" data-index="${i}" value="${line.replace(/"/g,'&quot;')}" />
-      </div>`;
+      html += `<div class="lyric-line"><input class="lyric-input" data-section="${s.key}" data-index="${i}" value="${line.replace(/"/g,'&quot;').replace(/'/g,'&#39;')}" /></div>`;
     });
     html += `</div>`;
   });
@@ -278,54 +502,43 @@ function renderLyrics(data) {
 }
 
 function renderScenes(scenes) {
-  let html = '<div class="grid-3">';
-  scenes.forEach(s => {
+  let html = '';
+  (scenes || []).forEach(s => {
     html += `<div class="scene-card" id="scene-card-${s.id}">
       <div class="scene-label">場景 ${s.id} · ${s.time}</div>
       <div class="scene-desc">${s.description}</div>
       <textarea class="scene-prompt-edit" id="scene-prompt-${s.id}" rows="4">${s.prompt}</textarea>
-      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-sm btn-outline" onclick="generateSingleVideo(${s.id})">單獨生成</button>
         <span class="status-badge status-pending" id="scene-status-${s.id}">等待中</span>
       </div>
-      <div style="margin-top:10px" id="scene-video-${s.id}">
-        <div class="video-preview"><div class="video-placeholder">畫面預覽</div></div>
+      <div id="scene-video-${s.id}">
+        <div class="video-preview"><div class="video-placeholder">🎬<br>畫面預覽</div></div>
       </div>
     </div>`;
   });
-  html += '</div>';
   document.getElementById('scenes-editor').innerHTML = html;
 }
 
 async function generateMusic() {
   const lyrics = buildLyricsText();
   const sunoPrompt = document.getElementById('suno-prompt').value;
-  const title = analysisResult?.title || '新聞神曲';
-
+  const title = analysisResult?.title || 'Rap說新聞';
   const btn = document.getElementById('btn-music');
   const spinner = document.getElementById('music-spinner');
   btn.disabled = true;
   spinner.classList.remove('hidden');
-  document.getElementById('music-area').innerHTML = '<div class="info-text" style="margin-top:12px">🎵 音樂生成中，約需 1-3 分鐘...</div>';
-
+  document.getElementById('music-area').innerHTML = '<div class="info-text" style="margin-top:16px">🎵 音樂生成中，約需 1-3 分鐘...</div>';
   try {
-    // 生成兩個版本
     const tasks = [];
     for (let i = 0; i < 2; i++) {
-      const r = await fetch('/api/generate_music', {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ lyrics, suno_prompt: sunoPrompt, title: `${title} v${i+1}` })
-      });
+      const r = await fetch('/api/generate_music', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ lyrics, suno_prompt: sunoPrompt, title: `${title} v${i+1}` }) });
       const data = await r.json();
       if (!r.ok) { showError('music-error', data.error); continue; }
       tasks.push({ ...data, version: i + 1 });
     }
-
-    musicTasks = tasks;
     renderMusicCards(tasks);
     tasks.forEach(t => pollMusicStatus(t.task_id, t.version));
-
   } catch(e) {
     showError('music-error', '連線失敗：' + e.message);
   } finally {
@@ -335,11 +548,11 @@ async function generateMusic() {
 }
 
 function renderMusicCards(tasks) {
-  let html = '<div style="margin-top:14px">';
+  let html = '<div style="margin-top:16px">';
   tasks.forEach(t => {
     html += `<div class="music-card" id="music-card-${t.task_id}">
-      <div style="min-width:60px">
-        <div style="font-size:12px;color:var(--muted)">版本 ${t.version}</div>
+      <div style="min-width:72px">
+        <div style="font-size:14px;color:var(--muted);font-weight:600;margin-bottom:6px">版本 ${t.version}</div>
         <span class="status-badge status-processing" id="music-status-${t.task_id}"><span class="spinner"></span> 生成中</span>
       </div>
       <div id="music-player-${t.task_id}" style="flex:1">
@@ -356,7 +569,6 @@ function pollMusicStatus(taskId, version) {
     try {
       const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
       const data = await r.json();
-
       if (data.status === 'completed' && data.url) {
         clearInterval(interval);
         const statusEl = document.getElementById(`music-status-${taskId}`);
@@ -364,10 +576,10 @@ function pollMusicStatus(taskId, version) {
         if (statusEl) { statusEl.className = 'status-badge status-completed'; statusEl.textContent = '✓ 完成'; }
         if (playerEl) {
           playerEl.innerHTML = `
-            <audio controls src="${data.url}" style="width:100%;height:36px"></audio>
-            <div style="margin-top:6px;display:flex;gap:8px">
-              <button class="btn btn-sm btn-primary" onclick="selectMusic('${data.url}', ${version})">✓ 選用版本 ${version}</button>
-              <a href="${data.url}" download class="btn btn-sm btn-outline">下載 MP3</a>
+            <audio controls src="${data.url}" style="width:100%;height:44px"></audio>
+            <div style="margin-top:10px;display:flex;gap:10px">
+              <button class="btn btn-sm btn-purple" onclick="selectMusic('${data.url}', ${version}, this)">✓ 選用版本 ${version}</button>
+              <a href="${data.url}" download class="btn btn-sm btn-outline">⬇ 下載 MP3</a>
             </div>`;
         }
         document.getElementById('step4').classList.remove('hidden');
@@ -379,17 +591,16 @@ function pollMusicStatus(taskId, version) {
       }
     } catch(e) {}
   }, 5000);
-  pollingIntervals[taskId] = interval;
 }
 
-function selectMusic(url, version) {
+function selectMusic(url, version, btn) {
   selectedMusicUrl = url;
-  document.querySelectorAll('.btn-primary[onclick^="selectMusic"]').forEach(b => {
+  document.querySelectorAll('.btn-purple.btn-sm').forEach(b => {
     b.style.background = '';
-    b.textContent = `✓ 選用版本 ${b.getAttribute('onclick').match(/version (\d)/)?.[1] || ''}`;
+    b.textContent = `✓ 選用版本 ${b.getAttribute('onclick')?.match(/version (\d)/)?.[1] || ''}`;
   });
-  event.target.style.background = 'var(--green)';
-  event.target.textContent = `✓ 已選版本 ${version}`;
+  btn.style.background = 'var(--green)';
+  btn.textContent = `✓ 已選版本 ${version}`;
   updateDownloadArea();
 }
 
@@ -398,13 +609,11 @@ async function generateAllVideos() {
   const spinner = document.getElementById('videos-spinner');
   btn.disabled = true;
   spinner.classList.remove('hidden');
-
   const scenes = analysisResult?.scenes || [];
   for (const s of scenes) {
     await generateSingleVideo(s.id);
-    await new Promise(res => setTimeout(res, 800));
+    await new Promise(res => setTimeout(res, 1000));
   }
-
   btn.disabled = false;
   spinner.classList.add('hidden');
 }
@@ -412,16 +621,10 @@ async function generateAllVideos() {
 async function generateSingleVideo(sceneId) {
   const prompt = document.getElementById(`scene-prompt-${sceneId}`)?.value;
   if (!prompt) return;
-
   const statusEl = document.getElementById(`scene-status-${sceneId}`);
   if (statusEl) { statusEl.className = 'status-badge status-processing'; statusEl.innerHTML = '<span class="spinner"></span> 生成中'; }
-
   try {
-    const r = await fetch('/api/generate_video', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ prompt, scene_id: sceneId })
-    });
+    const r = await fetch('/api/generate_video', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ prompt, scene_id: sceneId }) });
     const data = await r.json();
     if (!r.ok) {
       if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗'; }
@@ -438,7 +641,6 @@ function pollVideoStatus(taskId, sceneId) {
     try {
       const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
       const data = await r.json();
-
       if (data.status === 'completed' && data.url) {
         clearInterval(interval);
         const statusEl = document.getElementById(`scene-status-${sceneId}`);
@@ -446,12 +648,8 @@ function pollVideoStatus(taskId, sceneId) {
         if (statusEl) { statusEl.className = 'status-badge status-completed'; statusEl.textContent = '✓ 完成'; }
         if (videoEl) {
           videoEl.innerHTML = `
-            <div class="video-preview">
-              <video src="${data.url}" autoplay loop muted playsinline></video>
-            </div>
-            <div style="margin-top:6px">
-              <a href="${data.url}" download class="btn btn-sm btn-outline">下載 MP4</a>
-            </div>`;
+            <div class="video-preview"><video src="${data.url}" autoplay loop muted playsinline></video></div>
+            <div style="margin-top:10px"><a href="${data.url}" download class="btn btn-sm btn-outline">⬇ 下載 MP4</a></div>`;
         }
         videoTasks.push({ sceneId, url: data.url });
         updateDownloadArea();
@@ -459,25 +657,19 @@ function pollVideoStatus(taskId, sceneId) {
       } else if (data.status === 'failed') {
         clearInterval(interval);
         const statusEl = document.getElementById(`scene-status-${sceneId}`);
-        if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗 - 點重試'; }
-        const card = document.getElementById(`scene-card-${sceneId}`);
-        if (card) {
-          const retryBtn = card.querySelector('.btn-outline');
-          if (retryBtn) retryBtn.textContent = '重試';
-        }
+        if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗 — 點重試'; }
       }
     } catch(e) {}
   }, 5000);
-  pollingIntervals[taskId] = interval;
 }
 
 function updateDownloadArea() {
-  let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+  let html = '<div style="display:flex;flex-direction:column;gap:10px">';
   if (selectedMusicUrl) {
-    html += `<a href="${selectedMusicUrl}" download class="btn btn-gold" style="display:inline-flex;text-decoration:none">⬇ 下載音樂 MP3</a>`;
+    html += `<a href="${selectedMusicUrl}" download class="btn btn-purple" style="text-decoration:none;display:inline-flex">⬇ 下載音樂 MP3</a>`;
   }
   videoTasks.forEach(v => {
-    html += `<a href="${v.url}" download class="btn btn-green" style="display:inline-flex;text-decoration:none">⬇ 下載場景 ${v.sceneId} MP4</a>`;
+    html += `<a href="${v.url}" download class="btn btn-green" style="text-decoration:none;display:inline-flex">⬇ 下載場景 ${v.sceneId} MP4</a>`;
   });
   if (!selectedMusicUrl && videoTasks.length === 0) {
     html += '<div class="info-text">音樂和畫面生成完成後，下載連結會出現在這裡</div>';
