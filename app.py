@@ -25,11 +25,32 @@ def require_password(f):
     return decorated
 
 def fetch_news(url):
+    # 先試 Jina AI
     try:
         r = requests.get(JINA_URL + url, timeout=15, headers={'Accept': 'text/plain'})
-        return r.text[:8000]
-    except Exception as e:
-        return None
+        if r.status_code == 200 and len(r.text) > 200:
+            return r.text[:8000]
+    except Exception:
+        pass
+
+    # 備用：讓 Gemini 直接讀 URL
+    try:
+        payload = {
+            'contents': [{
+                'parts': [
+                    {'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字，不要任何格式：' + url}
+                ]
+            }],
+            'generationConfig': {'temperature': 0}
+        }
+        r = requests.post(GEMINI_URL, json=payload, timeout=30)
+        data = r.json()
+        if 'candidates' in data:
+            return data['candidates'][0]['content']['parts'][0]['text'][:8000]
+    except Exception:
+        pass
+
+    return None
 
 def parse_gemini_json(raw):
     start = raw.find('{')
@@ -134,10 +155,30 @@ def analyze():
                 'temperature': 0.85
             }
         }, timeout=60)
-        raw = r.json()['candidates'][0]['content']['parts'][0]['text']
+
+        resp = r.json()
+
+        # 詳細錯誤：API key 問題或配額
+        if 'error' in resp:
+            err_msg = resp['error'].get('message', str(resp['error']))
+            return jsonify({'error': f'Gemini API 錯誤：{err_msg}'}), 500
+
+        if 'candidates' not in resp:
+            return jsonify({'error': f'Gemini 回傳異常：{str(resp)[:300]}'}), 500
+
+        candidate = resp['candidates'][0]
+
+        # 安全過濾被擋
+        if candidate.get('finishReason') == 'SAFETY':
+            return jsonify({'error': 'Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文'}), 400
+
+        raw = candidate['content']['parts'][0]['text']
         result = parse_gemini_json(raw)
         result['original_content'] = news_content[:2000]
         return jsonify(result)
+
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'AI 回傳格式解析失敗，請重試：{str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': f'AI 分析失敗：{str(e)}'}), 500
 
