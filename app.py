@@ -261,10 +261,15 @@ def generate_music():
             'Authorization': f'Bearer {KIE_API_KEY}',
             'Content-Type': 'application/json'
         }, timeout=30)
+        if not r.content:
+            return jsonify({'error': 'Suno API 無回應，請重試'}), 500
         result = r.json()
-        task_id = result.get('data', {}).get('taskId') or result.get('taskId')
+        if not isinstance(result, dict):
+            return jsonify({'error': f'Suno API 回傳格式異常：{result}'}), 500
+        data_field = result.get('data') or {}
+        task_id = (data_field.get('taskId') if isinstance(data_field, dict) else None) or result.get('taskId')
         if not task_id:
-            return jsonify({'error': f'Suno 任務建立失敗：{result}'}), 500
+            return jsonify({'error': f'Suno 任務建立失敗，完整回傳：{result}'}), 500
         return jsonify({'task_id': task_id, 'status': 'pending'})
     except Exception as e:
         return jsonify({'error': f'音樂生成失敗：{str(e)}'}), 500
@@ -294,10 +299,15 @@ def generate_video():
             'Authorization': f'Bearer {KIE_API_KEY}',
             'Content-Type': 'application/json'
         }, timeout=30)
+        if not r.content:
+            return jsonify({'error': 'KIE API 無回應，請重試'}), 500
         result = r.json()
-        task_id = result.get('data', {}).get('taskId') or result.get('taskId')
+        if not isinstance(result, dict):
+            return jsonify({'error': f'KIE API 回傳格式異常：{result}'}), 500
+        data_field = result.get('data') or {}
+        task_id = (data_field.get('taskId') if isinstance(data_field, dict) else None) or result.get('taskId')
         if not task_id:
-            return jsonify({'error': f'影片任務建立失敗：{result}'}), 500
+            return jsonify({'error': f'影片任務建立失敗，完整回傳：{result}'}), 500
         return jsonify({'task_id': task_id, 'scene_id': scene_id, 'status': 'pending'})
     except Exception as e:
         return jsonify({'error': f'影片生成失敗：{str(e)}'}), 500
