@@ -9,11 +9,14 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 KIE_API_KEY = os.environ.get('KIE_API_KEY', '')
 SITE_PASSWORD = os.environ.get('SITE_PASSWORD', 'news2026')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-preview-05-20')
 
-GEMINI_URL = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
 KIE_CREATE_URL = 'https://api.kie.ai/api/v1/jobs/createTask'
 KIE_STATUS_URL = 'https://api.kie.ai/api/v1/jobs/recordInfo'
 JINA_URL = 'https://r.jina.ai/'
+
+def get_gemini_url():
+    return f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}'
 
 def require_password(f):
     @wraps(f)
@@ -25,35 +28,29 @@ def require_password(f):
     return decorated
 
 def fetch_news(url):
-    # 先試 Jina AI
     try:
         r = requests.get(JINA_URL + url, timeout=15, headers={'Accept': 'text/plain'})
         if r.status_code == 200 and len(r.text) > 200:
             return r.text[:8000]
     except Exception:
         pass
-
-    # 備用：讓 Gemini 直接讀 URL
     try:
         payload = {
-            'contents': [{
-                'parts': [
-                    {'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字，不要任何格式：' + url}
-                ]
-            }],
+            'contents': [{'parts': [{'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字：' + url}]}],
             'generationConfig': {'temperature': 0}
         }
-        r = requests.post(GEMINI_URL, json=payload, timeout=30)
+        r = requests.post(get_gemini_url(), json=payload, timeout=30)
         data = r.json()
         if 'candidates' in data:
             return data['candidates'][0]['content']['parts'][0]['text'][:8000]
     except Exception:
         pass
-
     return None
 
 def parse_gemini_json(raw):
     start = raw.find('{')
+    if start == -1:
+        raise ValueError('找不到 JSON 開頭')
     depth = 0
     end = -1
     for i, ch in enumerate(raw[start:], start):
@@ -64,7 +61,27 @@ def parse_gemini_json(raw):
             if depth == 0:
                 end = i + 1
                 break
+    if end == -1:
+        raise ValueError('JSON 解析失敗')
     return json.loads(raw[start:end])
+
+def call_gemini(prompt):
+    r = requests.post(get_gemini_url(), json={
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {
+            'response_mime_type': 'application/json',
+            'temperature': 0.85
+        }
+    }, timeout=90)
+    resp = r.json()
+    if 'error' in resp:
+        raise Exception('Gemini API 錯誤：' + resp['error'].get('message', str(resp['error'])))
+    if 'candidates' not in resp:
+        raise Exception('Gemini 回傳異常：' + str(resp)[:300])
+    candidate = resp['candidates'][0]
+    if candidate.get('finishReason') == 'SAFETY':
+        raise Exception('Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文')
+    return candidate['content']['parts'][0]['text']
 
 @app.route('/')
 def index():
@@ -75,7 +92,6 @@ def index():
 def analyze():
     data = request.json
     news_input = data.get('news_input', '').strip()
-
     if not news_input:
         return jsonify({'error': '請輸入新聞網址或內文'}), 400
 
@@ -107,7 +123,6 @@ def analyze():
 
 【畫面場景】
 同時生成 3 個關鍵畫面 prompt，用於 grok-imagine text-to-video：
-- 每個 prompt 必須是扁平小人動畫風格
 - 固定尾綴：flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text
 - 對應歌詞中最需要視覺化的 3 個時間點
 
@@ -124,63 +139,23 @@ def analyze():
     "verse3": ["第1句", "第2句", "第3句", "第4句"],
     "outro": ["第1句", "第2句"]
   }},
-  "suno_prompt": "Mandarin rap, 115 BPM, ...",
+  "suno_prompt": "Mandarin rap, 115 BPM, clear articulation, energetic flow, no singing, no intro start rap immediately, call and response chant on hook, punchy 808, male vocal only",
   "scenes": [
-    {{
-      "id": 1,
-      "time": "verse1",
-      "description": "場景描述（10字內中文）",
-      "prompt": "英文 grok prompt..."
-    }},
-    {{
-      "id": 2,
-      "time": "verse2",
-      "description": "場景描述",
-      "prompt": "英文 grok prompt..."
-    }},
-    {{
-      "id": 3,
-      "time": "outro",
-      "description": "場景描述",
-      "prompt": "英文 grok prompt..."
-    }}
+    {{"id": 1, "time": "verse1", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 2, "time": "verse2", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 3, "time": "outro", "description": "場景描述", "prompt": "英文 grok prompt... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}}
   ]
 }}"""
 
     try:
-        r = requests.post(GEMINI_URL, json={
-            'contents': [{'parts': [{'text': prompt}]}],
-            'generationConfig': {
-                'response_mime_type': 'application/json',
-                'temperature': 0.85
-            }
-        }, timeout=60)
-
-        resp = r.json()
-
-        # 詳細錯誤：API key 問題或配額
-        if 'error' in resp:
-            err_msg = resp['error'].get('message', str(resp['error']))
-            return jsonify({'error': f'Gemini API 錯誤：{err_msg}'}), 500
-
-        if 'candidates' not in resp:
-            return jsonify({'error': f'Gemini 回傳異常：{str(resp)[:300]}'}), 500
-
-        candidate = resp['candidates'][0]
-
-        # 安全過濾被擋
-        if candidate.get('finishReason') == 'SAFETY':
-            return jsonify({'error': 'Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文'}), 400
-
-        raw = candidate['content']['parts'][0]['text']
+        raw = call_gemini(prompt)
         result = parse_gemini_json(raw)
         result['original_content'] = news_content[:2000]
         return jsonify(result)
-
     except json.JSONDecodeError as e:
         return jsonify({'error': f'AI 回傳格式解析失敗，請重試：{str(e)}'}), 500
     except Exception as e:
-        return jsonify({'error': f'AI 分析失敗：{str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/generate_music', methods=['POST'])
 @require_password
@@ -188,8 +163,7 @@ def generate_music():
     data = request.json
     lyrics = data.get('lyrics', '')
     suno_prompt = data.get('suno_prompt', '')
-    title = data.get('title', '新聞神曲')
-
+    title = data.get('title', 'Rap說新聞')
     if not lyrics or not suno_prompt:
         return jsonify({'error': '缺少歌詞或風格指令'}), 400
 
@@ -204,7 +178,6 @@ def generate_music():
         'audioWeight': 0.85,
         'callBackUrl': 'none'
     }
-
     try:
         r = requests.post(KIE_CREATE_URL, json=payload, headers={
             'Authorization': f'Bearer {KIE_API_KEY}',
@@ -224,7 +197,6 @@ def generate_video():
     data = request.json
     prompt = data.get('prompt', '')
     scene_id = data.get('scene_id', 1)
-
     if not prompt:
         return jsonify({'error': '缺少畫面描述'}), 400
 
@@ -239,7 +211,6 @@ def generate_video():
             'sound': False
         }
     }
-
     try:
         r = requests.post(KIE_CREATE_URL, json=payload, headers={
             'Authorization': f'Bearer {KIE_API_KEY}',
@@ -262,15 +233,12 @@ def check_status(task_id):
         }, timeout=15)
         data = r.json().get('data', {})
         state = data.get('state', data.get('status', 'unknown'))
-
         if state in ('success', 'completed'):
             result_json = data.get('resultJson', '{}')
             if isinstance(result_json, str):
                 result_json = json.loads(result_json) if result_json else {}
-            url = (result_json.get('audio_url') or
-                   result_json.get('video_url') or
-                   data.get('audioUrl') or
-                   data.get('videoUrl') or '')
+            url = (result_json.get('audio_url') or result_json.get('video_url') or
+                   data.get('audioUrl') or data.get('videoUrl') or '')
             return jsonify({'status': 'completed', 'url': url, 'raw': data})
         elif state in ('failed', 'error'):
             return jsonify({'status': 'failed', 'error': data.get('errorMessage', '生成失敗')})
