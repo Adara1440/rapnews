@@ -369,6 +369,73 @@ def generate_video():
     except Exception as e:
         return jsonify({'error': f'影片生成失敗：{str(e)}'}), 500
 
+def _deep_find_url(obj, depth=0):
+    """遞迴尋找 JSON 裡第一個 http URL"""
+    if depth > 5:
+        return ''
+    if isinstance(obj, str) and obj.startswith('http'):
+        return obj
+    if isinstance(obj, dict):
+        for v in obj.values():
+            found = _deep_find_url(v, depth + 1)
+            if found:
+                return found
+    if isinstance(obj, list):
+        for item in obj:
+            found = _deep_find_url(item, depth + 1)
+            if found:
+                return found
+    return ''
+
+def _extract_url(task_data):
+    """從 KIE 回傳的各種格式中找出媒體 URL"""
+    # 先從 resultJson 找
+    rj = task_data.get('resultJson', '')
+    if rj:
+        try:
+            parsed = json.loads(rj) if isinstance(rj, str) else rj
+            if isinstance(parsed, dict):
+                for k in ['audio_url', 'video_url', 'url', 'imageUrl', 'videoUrl', 'audioUrl']:
+                    if parsed.get(k) and str(parsed[k]).startswith('http'):
+                        return parsed[k]
+                # resultUrls 陣列
+                urls = parsed.get('resultUrls', [])
+                if urls:
+                    return urls[0]
+            if isinstance(parsed, list) and parsed:
+                for item in parsed:
+                    if isinstance(item, str) and item.startswith('http'):
+                        return item
+        except Exception:
+            pass
+
+    # 直接從 task_data 找常見欄位
+    for k in ['audioUrl', 'videoUrl', 'audio_url', 'video_url', 'url', 'resultUrl']:
+        v = task_data.get(k, '')
+        if v and isinstance(v, str) and v.startswith('http'):
+            return v
+
+    # 最後遞迴深找
+    return _deep_find_url(task_data)
+
+def _is_done(task_data):
+    """判斷任務是否完成，回傳 (success, failed)"""
+    state = str(task_data.get('state', '')).lower()
+    if state == 'success':
+        return True, False
+    if state in ('fail', 'failed', 'error'):
+        return False, True
+    if task_data.get('successFlag') == 1:
+        return True, False
+    if task_data.get('successFlag') in (2, 3):
+        return False, True
+    status = str(task_data.get('status', '')).upper()
+    if status in ('SUCCESS', 'SUCCEEDED', 'FINISHED', 'COMPLETED'):
+        return True, False
+    if status in ('FAILED', 'ERROR', 'FAIL'):
+        return False, True
+    return False, False
+
 @app.route('/api/status/<task_id>', methods=['GET'])
 @require_password
 def check_status(task_id):
@@ -376,19 +443,28 @@ def check_status(task_id):
         r = requests.get(KIE_STATUS_URL, params={'taskId': task_id}, headers={
             'Authorization': f'Bearer {KIE_API_KEY}'
         }, timeout=15)
-        data = r.json().get('data', {})
-        state = data.get('state', data.get('status', 'unknown'))
-        if state in ('success', 'completed'):
-            result_json = data.get('resultJson', '{}')
-            if isinstance(result_json, str):
-                result_json = json.loads(result_json) if result_json else {}
-            url = (result_json.get('audio_url') or
-                   result_json.get('video_url') or
-                   data.get('audioUrl') or
-                   data.get('videoUrl') or '')
-            return jsonify({'status': 'completed', 'url': url, 'raw': data})
-        elif state in ('failed', 'error'):
-            return jsonify({'status': 'failed', 'error': data.get('errorMessage', '生成失敗')})
+        result = r.json()
+
+        # KIE 回傳可能在 data 欄位，也可能直接在根
+        task_data = result.get('data', {}) or {}
+        if isinstance(task_data, list) and task_data:
+            task_data = task_data[0]
+        if not task_data.get('state') and not task_data.get('status'):
+            task_data = result  # 直接用根層
+
+        done, failed = _is_done(task_data)
+        if not done and not failed:
+            done, failed = _is_done(result)
+            if done or failed:
+                task_data = result
+
+        if done:
+            url = _extract_url(task_data) or _extract_url(result)
+            print(f'[status] {task_id} done, url={bool(url)}, raw={str(task_data)[:200]}')
+            return jsonify({'status': 'completed', 'url': url})
+        elif failed:
+            err = task_data.get('errorMessage') or task_data.get('error') or '生成失敗'
+            return jsonify({'status': 'failed', 'error': err})
         else:
             return jsonify({'status': 'processing'})
     except Exception as e:
