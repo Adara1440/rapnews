@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新聞神曲製片工具</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: #13131a;
+  --card2: #1a1a24;
+  --border: #2a2a3a;
+  --accent: #7c3aed;
+  --accent2: #a855f7;
+  --gold: #f59e0b;
+  --green: #10b981;
+  --red: #ef4444;
+  --text: #f1f0f5;
+  --muted: #6b6b8a;
+  --radius: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, 'PingFang TC', sans-serif; min-height: 100vh; }
+.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent2), var(--gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.logo-sub { font-size: 13px; color: var(--muted); }
+.main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+.auth-bar { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; }
+.auth-bar input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; }
+.auth-bar input:focus { outline: none; border-color: var(--accent); }
+.step-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+.step-header { padding: 16px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); background: var(--card2); }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.step-title { font-size: 15px; font-weight: 600; }
+.step-body { padding: 20px; }
+textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 14px; resize: vertical; font-family: inherit; line-height: 1.6; }
+textarea:focus { outline: none; border-color: var(--accent); }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-primary:disabled { background: var(--muted); cursor: not-allowed; }
+.btn-gold { background: var(--gold); color: #000; }
+.btn-gold:hover { filter: brightness(1.1); }
+.btn-gold:disabled { background: var(--muted); color: #fff; cursor: not-allowed; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:disabled { background: var(--muted); cursor: not-allowed; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.btn-outline:hover { border-color: var(--accent); color: var(--text); }
+.lyrics-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.lyrics-label { font-size: 11px; font-weight: 600; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.lyric-line { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.lyric-line input { flex: 1; background: transparent; border: none; border-bottom: 1px solid var(--border); padding: 6px 0; color: var(--text); font-size: 14px; line-height: 1.6; }
+.lyric-line input:focus { outline: none; border-bottom-color: var(--accent); }
+.scene-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+.scene-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.scene-desc { font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+.scene-prompt-edit { width: 100%; background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--muted); font-size: 12px; resize: vertical; font-family: inherit; }
+.scene-prompt-edit:focus { outline: none; border-color: var(--accent); color: var(--text); }
+.video-preview { width: 100%; aspect-ratio: 9/16; max-width: 200px; background: var(--card2); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.video-preview video { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+.video-placeholder { color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
+.status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 8px; border-radius: 20px; }
+.status-pending { background: rgba(245,158,11,0.15); color: var(--gold); }
+.status-processing { background: rgba(124,58,237,0.15); color: var(--accent2); }
+.status-completed { background: rgba(16,185,129,0.15); color: var(--green); }
+.status-failed { background: rgba(239,68,68,0.15); color: var(--red); }
+.spinner { width: 14px; height: 14px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.suno-prompt-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.suno-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.music-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; display: flex; gap: 14px; align-items: center; }
+.music-card audio { flex: 1; height: 40px; }
+.hidden { display: none; }
+.divider { height: 1px; background: var(--border); margin: 16px 0; }
+.info-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.success-msg { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--green); margin-top: 12px; }
+.error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--red); margin-top: 12px; }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.section-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="logo">🎵 新聞神曲</div>
+    <div class="logo-sub">新聞網址 → 洗腦 Rap → 短影音素材</div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- 密碼 -->
+  <div class="auth-bar">
+    <span style="font-size:13px;color:var(--muted);white-space:nowrap">🔑 密碼</span>
+    <input type="password" id="password" placeholder="輸入存取密碼" />
+  </div>
+
+  <!-- Step 1: 輸入新聞 -->
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">1</div>
+      <div class="step-title">貼上新聞網址或內文</div>
+    </div>
+    <div class="step-body">
+      <textarea id="news-input" rows="4" placeholder="貼上新聞網址（如 https://www.ettoday.net/news/...）或直接貼內文"></textarea>
+      <div class="section-actions">
+        <button class="btn btn-primary" id="btn-analyze" onclick="analyzeNews()">
+          <span id="analyze-spinner" class="spinner hidden"></span>
+          分析新聞，生成歌詞
+        </button>
+      </div>
+      <div id="analyze-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- Step 2: 歌詞編輯 -->
+  <div class="step-card hidden" id="step2">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div class="step-title">確認歌詞 <span id="song-title-display" style="color:var(--accent2)"></span></div>
+    </div>
+    <div class="step-body">
+      <div id="lyrics-editor"></div>
+
+      <div class="divider"></div>
+
+      <div class="suno-prompt-box">
+        <div class="suno-label">Suno 音樂風格指令（可編輯）</div>
+        <textarea id="suno-prompt" rows="2" style="background:transparent;border:none;padding:0;color:var(--text);font-size:13px;margin-top:4px"></textarea>
+      </div>
+
+      <div class="section-actions">
+        <button class="btn btn-gold" id="btn-music" onclick="generateMusic()">
+          <span id="music-spinner" class="spinner hidden"></span>
+          生成音樂
+        </button>
+        <span class="info-text">生成兩個版本，你選一個</span>
+      </div>
+      <div id="music-error" class="error-msg hidden"></div>
+      <div id="music-area"></div>
+    </div>
+  </div>
+
+  <!-- Step 3: 畫面生成 -->
+  <div class="step-card hidden" id="step3">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div class="step-title">生成關鍵畫面</div>
+    </div>
+    <div class="step-body">
+      <div id="scenes-editor"></div>
+
+      <div class="section-actions">
+        <button class="btn btn-green" id="btn-videos" onclick="generateAllVideos()">
+          <span id="videos-spinner" class="spinner hidden"></span>
+          全部生成畫面（3片段）
+        </button>
+        <span class="info-text">每片段約 9.6 點，共約 29 點</span>
+      </div>
+      <div id="videos-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- Step 4: 下載素材 -->
+  <div class="step-card hidden" id="step4">
+    <div class="step-header">
+      <div class="step-num">4</div>
+      <div class="step-title">下載素材，進剪映組裝</div>
+    </div>
+    <div class="step-body">
+      <div class="info-text" style="margin-bottom:12px">
+        ① 下載選定的音樂 MP3<br>
+        ② 下載 3 個畫面片段 MP4<br>
+        ③ 進剪映：匯入音樂 → 文稿匹配字幕 → 插入畫面片段 → 輸出 9:16
+      </div>
+      <div id="download-area"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let analysisResult = null;
+let musicTasks = [];
+let videoTasks = [];
+let selectedMusicUrl = '';
+let pollingIntervals = {};
+
+function getHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'X-Access-Password': document.getElementById('password').value
+  };
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 6000);
+}
+
+function buildLyricsText() {
+  const sections = ['verse1','hook','verse2','verse3','outro'];
+  const labels = { verse1:'[Verse 1]', hook:'[Hook]', verse2:'[Verse 2]', verse3:'[Verse 3]', outro:'[Outro]' };
+  let full = '';
+  sections.forEach(s => {
+    full += labels[s] + '\n';
+    document.querySelectorAll(`.lyric-input[data-section="${s}"]`).forEach(inp => {
+      full += inp.value + '\n';
+    });
+    full += '\n';
+  });
+  return full.trim();
+}
+
+async function analyzeNews() {
+  const input = document.getElementById('news-input').value.trim();
+  if (!input) return alert('請輸入新聞網址或內文');
+
+  const btn = document.getElementById('btn-analyze');
+  const spinner = document.getElementById('analyze-spinner');
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+
+  try {
+    const r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ news_input: input })
+    });
+    const data = await r.json();
+    if (!r.ok) return showError('analyze-error', data.error || '分析失敗');
+
+    analysisResult = data;
+    renderLyrics(data);
+    renderScenes(data.scenes);
+
+    document.getElementById('song-title-display').textContent = `— ${data.title}`;
+    document.getElementById('suno-prompt').value = data.suno_prompt || '';
+    document.getElementById('step2').classList.remove('hidden');
+    document.getElementById('step3').classList.remove('hidden');
+    document.getElementById('step2').scrollIntoView({ behavior: 'smooth' });
+
+  } catch(e) {
+    showError('analyze-error', '連線失敗：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.classList.add('hidden');
+  }
+}
+
+function renderLyrics(data) {
+  const sections = [
+    { key: 'verse1', label: 'Verse 1 — 核心資訊' },
+    { key: 'hook', label: 'Hook — 洗腦副歌' },
+    { key: 'verse2', label: 'Verse 2 — 事件背景' },
+    { key: 'verse3', label: 'Verse 3 — 來龍去脈' },
+    { key: 'outro', label: 'Outro — 收尾' }
+  ];
+
+  let html = '';
+  sections.forEach(s => {
+    const lines = data.lyrics[s.key] || [];
+    html += `<div class="lyrics-block">
+      <div class="lyrics-label">${s.label}</div>`;
+    lines.forEach((line, i) => {
+      html += `<div class="lyric-line">
+        <input class="lyric-input" data-section="${s.key}" data-index="${i}" value="${line.replace(/"/g,'&quot;')}" />
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById('lyrics-editor').innerHTML = html;
+}
+
+function renderScenes(scenes) {
+  let html = '<div class="grid-3">';
+  scenes.forEach(s => {
+    html += `<div class="scene-card" id="scene-card-${s.id}">
+      <div class="scene-label">場景 ${s.id} · ${s.time}</div>
+      <div class="scene-desc">${s.description}</div>
+      <textarea class="scene-prompt-edit" id="scene-prompt-${s.id}" rows="4">${s.prompt}</textarea>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-sm btn-outline" onclick="generateSingleVideo(${s.id})">單獨生成</button>
+        <span class="status-badge status-pending" id="scene-status-${s.id}">等待中</span>
+      </div>
+      <div style="margin-top:10px" id="scene-video-${s.id}">
+        <div class="video-preview"><div class="video-placeholder">畫面預覽</div></div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('scenes-editor').innerHTML = html;
+}
+
+async function generateMusic() {
+  const lyrics = buildLyricsText();
+  const sunoPrompt = document.getElementById('suno-prompt').value;
+  const title = analysisResult?.title || '新聞神曲';
+
+  const btn = document.getElementById('btn-music');
+  const spinner = document.getElementById('music-spinner');
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+  document.getElementById('music-area').innerHTML = '<div class="info-text" style="margin-top:12px">🎵 音樂生成中，約需 1-3 分鐘...</div>';
+
+  try {
+    // 生成兩個版本
+    const tasks = [];
+    for (let i = 0; i < 2; i++) {
+      const r = await fetch('/api/generate_music', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ lyrics, suno_prompt: sunoPrompt, title: `${title} v${i+1}` })
+      });
+      const data = await r.json();
+      if (!r.ok) { showError('music-error', data.error); continue; }
+      tasks.push({ ...data, version: i + 1 });
+    }
+
+    musicTasks = tasks;
+    renderMusicCards(tasks);
+    tasks.forEach(t => pollMusicStatus(t.task_id, t.version));
+
+  } catch(e) {
+    showError('music-error', '連線失敗：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.classList.add('hidden');
+  }
+}
+
+function renderMusicCards(tasks) {
+  let html = '<div style="margin-top:14px">';
+  tasks.forEach(t => {
+    html += `<div class="music-card" id="music-card-${t.task_id}">
+      <div style="min-width:60px">
+        <div style="font-size:12px;color:var(--muted)">版本 ${t.version}</div>
+        <span class="status-badge status-processing" id="music-status-${t.task_id}"><span class="spinner"></span> 生成中</span>
+      </div>
+      <div id="music-player-${t.task_id}" style="flex:1">
+        <div class="info-text">音樂生成中...</div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('music-area').innerHTML = html;
+}
+
+function pollMusicStatus(taskId, version) {
+  const interval = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
+      const data = await r.json();
+
+      if (data.status === 'completed' && data.url) {
+        clearInterval(interval);
+        const statusEl = document.getElementById(`music-status-${taskId}`);
+        const playerEl = document.getElementById(`music-player-${taskId}`);
+        if (statusEl) { statusEl.className = 'status-badge status-completed'; statusEl.textContent = '✓ 完成'; }
+        if (playerEl) {
+          playerEl.innerHTML = `
+            <audio controls src="${data.url}" style="width:100%;height:36px"></audio>
+            <div style="margin-top:6px;display:flex;gap:8px">
+              <button class="btn btn-sm btn-primary" onclick="selectMusic('${data.url}', ${version})">✓ 選用版本 ${version}</button>
+              <a href="${data.url}" download class="btn btn-sm btn-outline">下載 MP3</a>
+            </div>`;
+        }
+        document.getElementById('step4').classList.remove('hidden');
+        updateDownloadArea();
+      } else if (data.status === 'failed') {
+        clearInterval(interval);
+        const statusEl = document.getElementById(`music-status-${taskId}`);
+        if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗'; }
+      }
+    } catch(e) {}
+  }, 5000);
+  pollingIntervals[taskId] = interval;
+}
+
+function selectMusic(url, version) {
+  selectedMusicUrl = url;
+  document.querySelectorAll('.btn-primary[onclick^="selectMusic"]').forEach(b => {
+    b.style.background = '';
+    b.textContent = `✓ 選用版本 ${b.getAttribute('onclick').match(/version (\d)/)?.[1] || ''}`;
+  });
+  event.target.style.background = 'var(--green)';
+  event.target.textContent = `✓ 已選版本 ${version}`;
+  updateDownloadArea();
+}
+
+async function generateAllVideos() {
+  const btn = document.getElementById('btn-videos');
+  const spinner = document.getElementById('videos-spinner');
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+
+  const scenes = analysisResult?.scenes || [];
+  for (const s of scenes) {
+    await generateSingleVideo(s.id);
+    await new Promise(res => setTimeout(res, 800));
+  }
+
+  btn.disabled = false;
+  spinner.classList.add('hidden');
+}
+
+async function generateSingleVideo(sceneId) {
+  const prompt = document.getElementById(`scene-prompt-${sceneId}`)?.value;
+  if (!prompt) return;
+
+  const statusEl = document.getElementById(`scene-status-${sceneId}`);
+  if (statusEl) { statusEl.className = 'status-badge status-processing'; statusEl.innerHTML = '<span class="spinner"></span> 生成中'; }
+
+  try {
+    const r = await fetch('/api/generate_video', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ prompt, scene_id: sceneId })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗'; }
+      return;
+    }
+    pollVideoStatus(data.task_id, sceneId);
+  } catch(e) {
+    if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗'; }
+  }
+}
+
+function pollVideoStatus(taskId, sceneId) {
+  const interval = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
+      const data = await r.json();
+
+      if (data.status === 'completed' && data.url) {
+        clearInterval(interval);
+        const statusEl = document.getElementById(`scene-status-${sceneId}`);
+        const videoEl = document.getElementById(`scene-video-${sceneId}`);
+        if (statusEl) { statusEl.className = 'status-badge status-completed'; statusEl.textContent = '✓ 完成'; }
+        if (videoEl) {
+          videoEl.innerHTML = `
+            <div class="video-preview">
+              <video src="${data.url}" autoplay loop muted playsinline></video>
+            </div>
+            <div style="margin-top:6px">
+              <a href="${data.url}" download class="btn btn-sm btn-outline">下載 MP4</a>
+            </div>`;
+        }
+        videoTasks.push({ sceneId, url: data.url });
+        updateDownloadArea();
+        document.getElementById('step4').classList.remove('hidden');
+      } else if (data.status === 'failed') {
+        clearInterval(interval);
+        const statusEl = document.getElementById(`scene-status-${sceneId}`);
+        if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗 - 點重試'; }
+        const card = document.getElementById(`scene-card-${sceneId}`);
+        if (card) {
+          const retryBtn = card.querySelector('.btn-outline');
+          if (retryBtn) retryBtn.textContent = '重試';
+        }
+      }
+    } catch(e) {}
+  }, 5000);
+  pollingIntervals[taskId] = interval;
+}
+
+function updateDownloadArea() {
+  let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+  if (selectedMusicUrl) {
+    html += `<a href="${selectedMusicUrl}" download class="btn btn-gold" style="display:inline-flex;text-decoration:none">⬇ 下載音樂 MP3</a>`;
+  }
+  videoTasks.forEach(v => {
+    html += `<a href="${v.url}" download class="btn btn-green" style="display:inline-flex;text-decoration:none">⬇ 下載場景 ${v.sceneId} MP4</a>`;
+  });
+  if (!selectedMusicUrl && videoTasks.length === 0) {
+    html += '<div class="info-text">音樂和畫面生成完成後，下載連結會出現在這裡</div>';
+  }
+  html += '</div>';
+  document.getElementById('download-area').innerHTML = html;
+}
+</script>
+</body>
+</html>
