@@ -14,23 +14,16 @@ KIE_CREATE_URL = 'https://api.kie.ai/api/v1/jobs/createTask'
 KIE_STATUS_URL = 'https://api.kie.ai/api/v1/jobs/recordInfo'
 JINA_URL = 'https://r.jina.ai/'
 
-# 啟動時自動偵測最佳可用 Gemini 模型
-# 優先順序：環境變數 > 自動偵測 > fallback
-# 更換模型時只需在 Railway 設定 GEMINI_MODEL 環境變數，不用改程式碼
 _GEMINI_MODEL = None
 
 def get_gemini_model():
     global _GEMINI_MODEL
     if _GEMINI_MODEL:
         return _GEMINI_MODEL
-
-    # 如果有設環境變數，直接用
     if os.environ.get('GEMINI_MODEL'):
         _GEMINI_MODEL = os.environ.get('GEMINI_MODEL')
         print(f'[Gemini] 使用環境變數指定模型：{_GEMINI_MODEL}')
         return _GEMINI_MODEL
-
-    # 自動偵測，按優先順序嘗試
     candidates = [
         'gemini-2.5-flash-preview',
         'gemini-2.5-flash',
@@ -49,8 +42,6 @@ def get_gemini_model():
                 return _GEMINI_MODEL
         except Exception:
             continue
-
-    # 最後 fallback
     _GEMINI_MODEL = 'gemini-2.0-flash'
     print(f'[Gemini] 自動偵測失敗，使用 fallback：{_GEMINI_MODEL}')
     return _GEMINI_MODEL
@@ -69,15 +60,12 @@ def require_password(f):
     return decorated
 
 def fetch_news(url):
-    # 先試 Jina AI
     try:
         r = requests.get(JINA_URL + url, timeout=15, headers={'Accept': 'text/plain'})
         if r.status_code == 200 and len(r.text) > 200:
             return r.text[:8000]
     except Exception:
         pass
-
-    # 備用：讓 Gemini 直接讀 URL
     try:
         payload = {
             'contents': [{'parts': [{'text': '請抓取並回傳這個網址的完整新聞內文，只要純文字，不要任何格式：' + url}]}],
@@ -89,7 +77,6 @@ def fetch_news(url):
             return data['candidates'][0]['content']['parts'][0]['text'][:8000]
     except Exception:
         pass
-
     return None
 
 def parse_gemini_json(raw):
@@ -115,26 +102,21 @@ def call_gemini(prompt):
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {
             'response_mime_type': 'application/json',
-            'temperature': 0.85
+            'temperature': 0.9
         }
     }, timeout=90)
     resp = r.json()
-
     if 'error' in resp:
         err_msg = resp['error'].get('message', str(resp['error']))
-        # 如果是模型找不到的錯誤，重置快取讓下次重新偵測
         if 'not found' in err_msg.lower() or 'not supported' in err_msg.lower():
             global _GEMINI_MODEL
             _GEMINI_MODEL = None
         raise Exception('Gemini API 錯誤：' + err_msg)
-
     if 'candidates' not in resp:
         raise Exception('Gemini 回傳異常：' + str(resp)[:300])
-
     candidate = resp['candidates'][0]
     if candidate.get('finishReason') == 'SAFETY':
         raise Exception('Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文')
-
     return candidate['content']['parts'][0]['text']
 
 @app.route('/')
@@ -162,47 +144,83 @@ def analyze():
         else:
             return jsonify({'error': '無法抓取網址內容，請直接貼上新聞內文'}), 400
 
-    prompt = f"""你是台灣新聞說唱腳本專家。任務：把新聞轉成洗腦 rap 歌詞，讓讀者用聽歌方式理解新聞。
+    prompt = f"""你是台灣最強的解釋性新聞 Rap 寫手。
+任務：把新聞寫成讓人停下來、聽完、記住、還想分享的洗腦 Rap 歌詞。
 
 【新聞內容】
 {news_content[:6000]}
 
-【核心原則】
-- 倒金字塔：最重要的資訊第一句就說
-- 快嘴 rap 節奏：每句控制在 10-14 字，讀起來要有節奏感
-- 洗腦設計：副歌重複核心訊息，讓人聽完記住一件最重要的事
-- 口語化：像在跟朋友說，不是在唸稿
+════════════════════════════════════
+第一步：先從新聞裡挖出這些東西（寫歌前必做）
+════════════════════════════════════
+
+1. 最衝擊的一句話是什麼？（這就是你的第一句）
+2. 新聞裡有哪些具體數字、日期、金額、比例？（全部列出來）
+3. 有哪些具體的人名、機構、地點、事件名稱？
+4. 這件事的「來龍去脈」三行版：起因→過程→結果
+5. 如果你要跟朋友說這個新聞，你會怎麼說？（用那個語氣寫）
+
+════════════════════════════════════
+第二步：寫歌詞（這才是你要輸出的東西）
+════════════════════════════════════
 
 【歌詞結構】
-- Verse 1（4句）：最重要的資訊 + 法條/數字，第一句就是結論
-- Hook（4句）：洗腦重複，只有核心訊息，要押韻
-- Verse 2（4句）：事件背景 + 為什麼發生
-- Verse 3（4句）：來龍去脈 + 延伸影響
-- Outro（2句）：行動呼籲或收尾
+- Verse 1（4句）：倒金字塔，最重要的結論+數字+影響，第一句就要讓人「哇」
+- Hook（4句）：只有核心訊息，重複洗腦，要押韻，聽完就記住這則新聞在說什麼
+- Verse 2（4句）：說清楚「為什麼」，背景故事，讓人理解來龍去脈
+- Verse 3（4句）：延伸影響、細節補充、跟聽眾的關係
+- Outro（2句）：收尾，行動感，不說教
 
-【畫面場景】
-同時生成 3 個關鍵畫面 prompt，用於 grok-imagine text-to-video：
-- 固定尾綴：flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text
-- 對應歌詞中最需要視覺化的 3 個時間點
+【歌詞品質硬規定——違反就重寫】
 
-【Suno Style Prompt】
-生成適合這首 rap 的 Suno 音樂風格指令（英文，30字內）
+✅ 必須做到：
+- 第一句就是最衝擊的結論，讓人停下來
+- 每個段落至少一個具體數字、日期或金額
+- Hook 要讓人聽完就能複述這則新聞的核心
+- 句子要有節奏感，讀出來要順，有押韻更好
+- 口語化，像在跟朋友說，不是在唸稿
 
-只輸出合法 JSON，不要任何說明文字：
+❌ 絕對禁止（出現就重寫）：
+- 通用句：「了解這些事」「保護你健康」「工作更有力」「值得深思」
+  → 這種句子換個新聞主題也能用，代表你沒有真正理解這則新聞
+- 說教句：「我們應該」「大家要注意」「希望大家」
+- 空洞句：沒有具體資訊的廢話
+- 書面語：「此乃」「因此」「然而」「據悉」
+- 沒有鉤子的開場：不能用「今天要講的是」「讓我告訴你」
+
+【風格參考——這是你要達到的感覺】
+第一句範例：「今年開始台灣修法了你知道嗎 / 請病假十天以內老闆不能罰」
+Hook 範例：「請病假！合法的！/ 請病假！不用怕！/ 請病假！老闆罰你！/ 兩萬到一百萬！」
+→ 注意：具體、有數字、有衝擊、有節奏、聽一次就記住
+
+════════════════════════════════════
+第三步：生成畫面和音樂指令
+════════════════════════════════════
+
+【畫面場景】3 個 grok-imagine text-to-video prompt：
+- 對應歌詞中最有畫面感的 3 個時間點
+- 固定風格：flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text
+
+【Suno 音樂風格】英文，控制在 40 字內，針對這則新聞的情緒和節奏設計
+
+════════════════════════════════════
+輸出格式（純 JSON，不要任何說明文字）
+════════════════════════════════════
+
 {{
-  "title": "影片標題（10字內，吸睛）",
+  "title": "影片標題（10字內，衝擊感，讓人想點進來）",
   "lyrics": {{
-    "verse1": ["第1句", "第2句", "第3句", "第4句"],
-    "hook": ["第1句", "第2句", "第3句", "第4句"],
-    "verse2": ["第1句", "第2句", "第3句", "第4句"],
-    "verse3": ["第1句", "第2句", "第3句", "第4句"],
-    "outro": ["第1句", "第2句"]
+    "verse1": ["第1句（最衝擊的結論）", "第2句（具體數字）", "第3句", "第4句"],
+    "hook": ["第1句（洗腦重複）", "第2句", "第3句", "第4句（記憶點）"],
+    "verse2": ["第1句（為什麼）", "第2句（故事）", "第3句", "第4句"],
+    "verse3": ["第1句（影響）", "第2句（細節）", "第3句", "第4句"],
+    "outro": ["第1句（行動感）", "第2句（收尾）"]
   }},
-  "suno_prompt": "Mandarin rap, 115 BPM, clear articulation, energetic flow, no singing, no intro start rap immediately, call and response chant on hook, punchy 808, male vocal only",
+  "suno_prompt": "針對這則新聞設計的 Suno 風格指令（英文）",
   "scenes": [
-    {{"id": 1, "time": "verse1", "description": "場景描述（10字內中文）", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
-    {{"id": 2, "time": "verse2", "description": "場景描述", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
-    {{"id": 3, "time": "outro", "description": "場景描述", "prompt": "場景英文描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}}
+    {{"id": 1, "time": "verse1", "description": "場景描述（10字內中文）", "prompt": "具體場景描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 2, "time": "verse2", "description": "場景描述", "prompt": "具體場景描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}},
+    {{"id": 3, "time": "outro", "description": "場景描述", "prompt": "具體場景描述... flat 2D animation, stick figure style, white background, simple black outline, smooth motion, 9:16, no text"}}
   ]
 }}"""
 
@@ -293,7 +311,6 @@ def check_status(task_id):
         }, timeout=15)
         data = r.json().get('data', {})
         state = data.get('state', data.get('status', 'unknown'))
-
         if state in ('success', 'completed'):
             result_json = data.get('resultJson', '{}')
             if isinstance(result_json, str):
