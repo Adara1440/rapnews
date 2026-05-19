@@ -341,14 +341,13 @@ def generate_video():
         return jsonify({'error': '缺少畫面描述'}), 400
 
     payload = {
-        'model': 'grok-imagine/text-to-video',
+        'model': 'bytedance/seedance-2-fast',
         'input': {
             'prompt': prompt,
             'aspect_ratio': '9:16',
-            'duration': 6,
+            'duration': 5,
             'resolution': '480p',
-            'mode': 'normal',
-            'sound': False
+            'generate_audio': False
         }
     }
     try:
