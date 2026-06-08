@@ -2,6 +2,7 @@ import os
 import json
 import requests
 from datetime import datetime
+from urllib.parse import urljoin
 from flask import Flask, request, jsonify, send_from_directory
 from functools import wraps
 
@@ -14,6 +15,8 @@ SITE_PASSWORD = os.environ.get('SITE_PASSWORD', 'news2026')
 KIE_CREATE_URL = 'https://api.kie.ai/api/v1/jobs/createTask'
 KIE_STATUS_URL = 'https://api.kie.ai/api/v1/jobs/recordInfo'
 JINA_URL = 'https://r.jina.ai/'
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+SEEN_URLS_FILE = os.path.join(DATA_DIR, 'seen_urls.json')
 
 _GEMINI_MODEL = None
 
@@ -189,6 +192,54 @@ def _clean_text(value, limit=8000):
     text = str(value).strip()
     return text[:limit]
 
+def _source_meta(content, url='', fetch_status='success', is_new=True):
+    text = _clean_text(content, 20000)
+    length = len(text)
+    if fetch_status == 'success' and length < 300:
+        fetch_status = 'partial'
+    return {
+        'article_text_length': length,
+        'content_preview': text[:120],
+        'source_url': url,
+        'fetch_status': fetch_status,
+        'is_new': bool(is_new),
+    }
+
+def load_seen_urls():
+    try:
+        if not os.path.exists(SEEN_URLS_FILE):
+            return set()
+        with open(SEEN_URLS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return set(str(url) for url in data)
+        if isinstance(data, dict):
+            return set(str(url) for url in data.get('urls', []))
+    except Exception as e:
+        print(f'[seen_urls] load failed: {e}')
+    return set()
+
+def save_seen_urls(urls):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(SEEN_URLS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sorted(urls), f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f'[seen_urls] save failed: {e}')
+
+def source_public_view(source):
+    return {
+        'id': source.get('id'),
+        'title': source.get('title', ''),
+        'url': source.get('url', ''),
+        'source_url': source.get('source_url') or source.get('url', ''),
+        'article_text_length': int(source.get('article_text_length') or len(source.get('content', ''))),
+        'content_preview': source.get('content_preview') or _clean_text(source.get('content'), 120),
+        'content': source.get('content', ''),
+        'fetch_status': source.get('fetch_status') or 'success',
+        'is_new': bool(source.get('is_new', True)),
+    }
+
 def _source_from_item(item, idx):
     if isinstance(item, str):
         item = {'url': item} if item.strip().startswith('http') else {'content': item}
@@ -199,6 +250,9 @@ def _source_from_item(item, idx):
     url = _clean_text(item.get('url'), 1000)
     content = _clean_text(item.get('content') or item.get('text') or item.get('summary'), 8000)
 
+    fetch_status = item.get('fetch_status') or 'success'
+    is_new = item.get('is_new', True)
+
     if not content and url:
         fetched = fetch_news(url)
         if not fetched:
@@ -208,12 +262,17 @@ def _source_from_item(item, idx):
     if not content:
         return None, f'第 {idx} 筆來源缺少新聞內文或可讀取的網址。'
 
-    return {
+    source = {
         'id': idx,
         'title': title,
         'url': url,
         'content': content[:5000],
-    }, None
+    }
+    source.update(_source_meta(content, url, fetch_status, is_new))
+    for key in ['article_text_length', 'content_preview', 'source_url', 'fetch_status', 'is_new']:
+        if key in item:
+            source[key] = item[key]
+    return source, None
 
 def collect_news_sources(data):
     raw_sources = (
@@ -243,12 +302,132 @@ def collect_news_sources(data):
 def sources_to_prompt(sources, per_source_limit=1800):
     blocks = []
     for source in sources:
+        content = source.get('content', '')
         blocks.append(
-            f"[{source['id']}] {source['title']}\n"
-            f"URL: {source.get('url') or '無'}\n"
-            f"內容:\n{source['content'][:per_source_limit]}"
+            f"[{source.get('id')}] {source.get('title', '')}\n"
+            f"URL: {source.get('url') or source.get('source_url') or 'none'}\n"
+            f"fetch_status: {source.get('fetch_status', 'success')}\n"
+            f"article_text_length: {source.get('article_text_length', len(content))}\n"
+            f"is_new: {source.get('is_new', True)}\n"
+            f"content:\n{content[:per_source_limit]}"
         )
     return "\n\n---\n\n".join(blocks)
+
+def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.htm', limit=12):
+    try:
+        limit = max(1, min(int(limit), 20))
+    except (TypeError, ValueError):
+        limit = 12
+
+    try:
+        from bs4 import BeautifulSoup
+        r = requests.get(list_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8',
+        }, timeout=20)
+        r.encoding = 'utf-8'
+        if r.status_code != 200:
+            return None, f'讀取 ETtoday 新聞列表失敗，HTTP 狀態碼：{r.status_code}'
+
+        soup = BeautifulSoup(r.text, 'html.parser')
+        candidates = []
+        seen = set()
+        selectors = [
+            '.part_list_2 h3 a',
+            '.part_list_2 a',
+            'h3 a[href]',
+            'a[href*="/news/"]',
+        ]
+        for selector in selectors:
+            for link in soup.select(selector):
+                href = (link.get('href') or '').strip()
+                title = ' '.join(link.get_text(' ', strip=True).split())
+                if not href or not title:
+                    continue
+                url = urljoin(list_url, href)
+                if 'ettoday.net' not in url or '/news/' not in url or url in seen:
+                    continue
+                seen.add(url)
+                candidates.append({'title': title, 'url': url})
+                if len(candidates) >= limit:
+                    break
+            if len(candidates) >= limit:
+                break
+
+        if not candidates:
+            return None, 'ETtoday 列表沒有解析到新聞連結，可能是網站版型改變或暫時無法讀取。'
+        return candidates, None
+    except Exception as e:
+        return None, f'讀取 ETtoday 新聞列表時發生錯誤：{str(e)}'
+
+def build_sources_from_ettoday(list_url, limit):
+    candidates, error = fetch_ettoday_candidates(list_url, limit)
+    if error:
+        return None, error
+
+    seen_urls = load_seen_urls()
+    updated_seen_urls = set(seen_urls)
+    sources = []
+    for item in candidates:
+        url = item.get('url', '')
+        is_new = bool(url and url not in seen_urls)
+        content = fetch_news(url) if url else None
+        fetch_status = 'success' if content else 'failed'
+        usable_content = content or f"[內文抓取失敗，AI 不應根據此篇給高分] {item.get('title', '')}"
+        source = {
+            'id': len(sources) + 1,
+            'title': item.get('title', '') or f'來源 {len(sources) + 1}',
+            'url': url,
+            'content': usable_content[:5000],
+        }
+        source.update(_source_meta(content or '', url, fetch_status, is_new))
+        sources.append(source)
+        if url:
+            updated_seen_urls.add(url)
+
+    if not sources:
+        return None, '沒有抓到任何 ETtoday 新聞候選。請稍後再試。'
+    save_seen_urls(updated_seen_urls)
+    return sources, None
+
+def apply_source_quality_rules(result, sources):
+    source_map = {int(source.get('id', 0)): source for source in sources}
+    topics = result.get('topics') or []
+    for topic in topics:
+        ids = topic.get('source_ids') if isinstance(topic.get('source_ids'), list) else []
+        matched = []
+        for source_id in ids:
+            try:
+                source = source_map.get(int(source_id))
+            except (TypeError, ValueError):
+                source = None
+            if source:
+                matched.append(source)
+        if not matched and len(sources) == 1:
+            matched = sources
+
+        topic['source_details'] = [source_public_view(source) for source in matched]
+        topic['is_new'] = any(source.get('is_new', True) for source in matched) if matched else True
+
+        insufficient = [
+            source for source in matched
+            if int(source.get('article_text_length') or 0) < 300
+        ]
+        if insufficient:
+            topic['content_insufficient'] = True
+            for score_key in ['rap_potential', 'public_interest', 'visual_potential']:
+                try:
+                    topic[score_key] = min(int(topic.get(score_key, 1)), 2)
+                except (TypeError, ValueError):
+                    topic[score_key] = 1
+            if str(topic.get('risk_level', '')).lower() == 'low' or not topic.get('risk_level'):
+                topic['risk_level'] = 'medium'
+            note = '內文不足，需人工確認'
+            current_notes = str(topic.get('risk_notes') or '').strip()
+            topic['risk_notes'] = current_notes if note in current_notes else (current_notes + '；' + note if current_notes else note)
+        else:
+            topic['content_insufficient'] = False
+    return result
 
 def run_daily_topics(data):
     sources, error = collect_news_sources(data)
@@ -278,6 +457,13 @@ def run_daily_topics(data):
 
 新聞來源：
 {sources_to_prompt(sources)}
+
+Editorial rules:
+- Judge each candidate by the article body, not only by the headline.
+- Prefer topics that can explain what happened, who is affected, the core conflict, and the next thing to watch within 45-60 seconds.
+- If the article body is too thin to support an explanatory news rap, put it in not_recommended.
+- If article_text_length is below 300, do not give high scores. risk_level must be at least medium and risk_notes must include "內文不足，需人工確認".
+- Keep hooks catchy, but do not sacrifice factual accuracy.
 
 請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
 {{
@@ -309,8 +495,9 @@ def run_daily_topics(data):
 """
     raw = call_gemini(prompt)
     result = parse_gemini_json(raw)
+    result = apply_source_quality_rules(result, sources)
     result['source_count'] = len(sources)
-    result['sources'] = [{'id': s['id'], 'title': s['title'], 'url': s['url']} for s in sources]
+    result['sources'] = [source_public_view(s) for s in sources]
     result['model_used'] = get_gemini_model()
     return result, None
 
@@ -349,6 +536,13 @@ def run_production_package(data):
 
 可用新聞來源：
 {sources_to_prompt(sources, per_source_limit=2200)}
+
+Rap news writing rules:
+- This must be explanatory rap news, not headline-based rhyming filler.
+- The lyrics must help a listener understand the news without reading the article first: background, main actors, what happened, why it matters, impact, and what to watch next.
+- Every major section should include concrete source-supported details such as time, place, people, organizations, numbers, policy, or event context.
+- The hook can be memorable, but it must still summarize the news angle.
+- Do not put unsupported claims into lyrics. Put uncertain items in must_verify.
 
 請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
 {{
@@ -396,7 +590,7 @@ def run_production_package(data):
     raw = call_gemini(prompt)
     result = parse_gemini_json(raw)
     result['source_count'] = len(sources)
-    result['sources'] = [{'id': s['id'], 'title': s['title'], 'url': s['url']} for s in sources]
+    result['sources'] = [source_public_view(s) for s in sources]
     result['model_used'] = get_gemini_model()
     return result, None
 
@@ -425,6 +619,40 @@ def daily_topics():
         return jsonify({'error': f'AI 回傳的選題資料不是有效 JSON，請重新送出。技術細節：{str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': f'每日選題產生失敗：{str(e)}'}), 500
+
+@app.route('/api/ettoday_scan', methods=['POST'])
+@require_password
+def ettoday_scan():
+    data, payload_error = get_json_payload()
+    if payload_error:
+        body, status = payload_error
+        return jsonify(body), status
+
+    list_url = _clean_text(data.get('list_url'), 1000) or 'https://www.ettoday.net/news/news-list.htm'
+    limit = data.get('limit', 12)
+    sources, source_error = build_sources_from_ettoday(list_url, limit)
+    if source_error:
+        return jsonify({'error': source_error}), 400
+
+    scan_data = dict(data)
+    scan_data['sources'] = sources
+    scan_data['focus'] = _clean_text(
+        data.get('focus'),
+        500
+    ) or '從 ETtoday 最新新聞中挑出適合做成 RAP 說新聞的題目，必須能用文章內文講清楚事件脈絡'
+
+    try:
+        result, error = run_daily_topics(scan_data)
+        if error:
+            return jsonify({'error': error}), 400
+        result['scanned_from'] = list_url
+        result['scanned_at'] = datetime.now().isoformat(timespec='seconds')
+        result['candidate_count'] = len(sources)
+        return jsonify(result)
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'AI 回傳的選題資料不是有效 JSON，請重新掃描。技術細節：{str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'ETtoday 自動掃描失敗：{str(e)}'}), 500
 
 @app.route('/api/production_package', methods=['POST'])
 @require_password
@@ -782,3 +1010,4 @@ def check_status(task_id):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+

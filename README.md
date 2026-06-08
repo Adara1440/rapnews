@@ -32,24 +32,17 @@ Content-Type: application/json
 
 ### 每日 RAP 選題
 
-1. 在「每日 RAP 選題」區塊的大文字框貼上多則新聞，每行一則。
-2. 可直接貼網址：
-
-```text
-https://example.com/news-a
-https://example.com/news-b
-```
-
-3. 也可貼簡短新聞，格式為：
-
-```text
-標題｜網址｜內文
-```
-
-4. 點「掃描選題」後，前端會呼叫 `POST /api/daily_topics`。
+1. 在「每日 RAP 選題」區塊確認 ETtoday 列表網址，預設是 `https://www.ettoday.net/news/news-list.htm`。
+2. 設定掃描間隔分鐘與每次讀取篇數。
+3. 點「立即掃 ETtoday」會呼叫 `POST /api/ettoday_scan`，後端會抓新聞列表、逐篇讀內文，再交給 AI 選題。
+4. 點「啟動定時通知」後，頁面會每隔指定分鐘自動掃描一次。掃到候選題時會用瀏覽器通知提醒你回頁面審核。
 5. 頁面會顯示排名、標題、RAP 分數、建議曲風、適合原因、風險等級、風險說明與原文網址。
-6. 點單一選題旁的「產製作包」，前端會呼叫 `POST /api/production_package`。
-7. 製作包會顯示歌詞、Suno prompt、影像 prompt、YouTube 標題與風險提醒。
+6. 每個選題會顯示抓到的內文字數、抓取狀態、內文預覽與是否為新新聞。
+7. 若內文少於 300 字，頁面會顯示「內文不足」，AI 分數會保守處理，風險至少為 `medium`。
+8. 「只顯示新新聞」預設開啟；瀏覽器通知也只通知新新聞。
+9. 點單一選題旁的「產製作包」，前端會呼叫 `POST /api/production_package`。
+10. 製作包會顯示歌詞、Suno prompt、影像 prompt、YouTube 標題與風險提醒。
+11. 手動文字框仍可補充新聞，每行一則。格式可用網址，或 `標題｜網址｜內文`。
 
 ### 單篇新聞產製
 
@@ -103,6 +96,58 @@ https://example.com/news-b
 查詢音樂或影片任務狀態。保留既有功能。
 
 ## 新增 API
+
+### `POST /api/ettoday_scan`
+
+自動讀取 ETtoday 新聞列表，抓取候選新聞內文，再產生每日 RAP 選題。
+
+請求範例：
+
+```json
+{
+  "list_url": "https://www.ettoday.net/news/news-list.htm",
+  "limit": 12,
+  "topic_count": 5
+}
+```
+
+回傳格式與 `/api/daily_topics` 類似，另外包含：
+
+```json
+{
+  "scanned_from": "https://www.ettoday.net/news/news-list.htm",
+  "scanned_at": "2026-06-08T10:00:00",
+  "candidate_count": 12
+}
+```
+
+每則來源會包含：
+
+```json
+{
+  "id": 1,
+  "title": "新聞標題",
+  "source_url": "https://www.ettoday.net/news/example.htm",
+  "article_text_length": 1200,
+  "content_preview": "新聞內文前 120 字...",
+  "fetch_status": "success",
+  "is_new": true
+}
+```
+
+`fetch_status` 可能是：
+
+- `success`：成功抓到完整或足夠內文。
+- `partial`：有抓到內容，但少於 300 字。
+- `failed`：列表有抓到新聞，但內文讀取失敗。
+
+系統會用 `data/seen_urls.json` 記錄已掃過的新聞 URL。第一次看到的 URL 會回傳 `is_new: true`，之後同一 URL 會回傳 `is_new: false`。
+
+若 `article_text_length` 少於 300，後端會強制保守處理：
+
+- RAP / 熱度 / 視覺分數不會維持高分。
+- `risk_level` 至少為 `medium`。
+- `risk_notes` 會包含「內文不足，需人工確認」。
 
 ### `POST /api/daily_topics`
 

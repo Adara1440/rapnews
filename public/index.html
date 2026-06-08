@@ -394,6 +394,57 @@ textarea:focus { outline: none; border-color: var(--accent); }
   margin-bottom: 8px;
 }
 .prewrap { white-space: pre-wrap; line-height: 1.7; word-break: break-word; }
+.monitor-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 120px 120px;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.monitor-grid input {
+  width: 100%;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+.monitor-grid input:focus { outline: none; border-color: var(--accent); }
+.monitor-status {
+  background: rgba(123,47,190,0.08);
+  border: 1.5px solid rgba(123,47,190,0.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+}
+.insufficient-warning {
+  background: rgba(255,59,92,0.1);
+  border: 1.5px solid rgba(255,59,92,0.28);
+  color: var(--red);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 800;
+  margin: 10px 0;
+}
+.source-preview {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+@media (max-width: 760px) {
+  .monitor-grid { grid-template-columns: 1fr; }
+  .topic-head { flex-direction: column; }
+}
 </style>
 </head>
 <body>
@@ -418,15 +469,37 @@ textarea:focus { outline: none; border-color: var(--accent); }
     </div>
     <div class="step-body">
       <div class="daily-help info-text">
-        每行貼一則新聞。可直接貼網址，也可用「標題｜網址｜內文」格式貼入簡短新聞。
+        自動掃 ETtoday 最新新聞，AI 會先讀內文再挑適合做 RAP 說新聞的題目。掃到選題後會用瀏覽器通知提醒你審核。
+      </div>
+      <div class="monitor-grid">
+        <input id="ettoday-url" value="https://www.ettoday.net/news/news-list.htm" aria-label="ETtoday 列表網址" />
+        <input id="monitor-minutes" type="number" min="5" value="30" aria-label="掃描間隔分鐘" />
+        <input id="scan-limit" type="number" min="3" max="20" value="12" aria-label="每次讀取篇數" />
+      </div>
+      <div class="section-actions" style="margin-top:0">
+        <button class="btn btn-primary" id="btn-ettoday-scan" onclick="scanEttodayNow()">
+          <span id="ettoday-spinner" class="spinner hidden"></span>
+          立即掃 ETtoday
+        </button>
+        <button class="btn btn-purple" id="btn-monitor-start" onclick="startEttodayMonitor()">啟動定時通知</button>
+        <button class="btn btn-outline" id="btn-monitor-stop" onclick="stopEttodayMonitor()">停止</button>
+      </div>
+      <label class="checkbox-row" style="margin-top:12px">
+        <input type="checkbox" id="only-new-topics" checked onchange="renderDailyTopics(dailyTopicsResult?.topics || [])" />
+        只顯示新新聞
+      </label>
+      <div id="monitor-status" class="monitor-status info-text">尚未啟動自動掃描。</div>
+      <div class="divider"></div>
+      <div class="daily-help info-text">
+        也可手動補充新聞，每行一則。格式：網址，或「標題｜網址｜內文」。
       </div>
       <textarea id="daily-input" rows="8" placeholder="https://example.com/news-a&#10;新聞標題｜https://example.com/news-b｜新聞內文摘要...&#10;另一則只有文字的新聞摘要..."></textarea>
       <div class="section-actions">
         <button class="btn btn-primary" id="btn-daily-scan" onclick="scanDailyTopics()">
           <span id="daily-spinner" class="spinner hidden"></span>
-          掃描選題
+          掃描手動清單
         </button>
-        <span class="info-text">會呼叫 /api/daily_topics，挑出適合做 RAP 新聞的題目。</span>
+        <span class="info-text">手動清單會呼叫 /api/daily_topics；ETtoday 掃描會呼叫 /api/ettoday_scan。</span>
       </div>
       <div id="daily-error" class="error-msg hidden"></div>
       <div id="daily-results" class="daily-results"></div>
@@ -521,6 +594,8 @@ let selectedMusicUrl = '';
 let dailyTopicsResult = null;
 let dailySources = [];
 let productionPackages = {};
+let ettodayMonitorTimer = null;
+let lastNotifiedSignature = '';
 
 function getHeaders() {
   return {
@@ -572,16 +647,35 @@ function parseDailySources(raw) {
 
 function getTopicSourceUrls(topic) {
   const urls = [];
-  const ids = Array.isArray(topic.source_ids) ? topic.source_ids : [];
-  const listedSources = dailyTopicsResult?.sources || [];
-  ids.forEach(id => {
-    const source = listedSources.find(s => Number(s.id) === Number(id));
-    if (source?.url) urls.push(source.url);
+  getTopicSources(topic).forEach(source => {
+    const url = source.source_url || source.url;
+    if (url && !urls.includes(url)) urls.push(url);
   });
   ['url', 'source_url', 'original_url'].forEach(key => {
     if (topic[key] && !urls.includes(topic[key])) urls.push(topic[key]);
   });
   return urls;
+}
+
+function getTopicSources(topic) {
+  if (Array.isArray(topic.source_details) && topic.source_details.length) return topic.source_details;
+  const ids = Array.isArray(topic.source_ids) ? topic.source_ids : [];
+  const listedSources = dailyTopicsResult?.sources || [];
+  const matched = ids
+    .map(id => listedSources.find(s => Number(s.id) === Number(id)))
+    .filter(Boolean);
+  return matched.length ? matched : [];
+}
+
+function isTopicNew(topic) {
+  if (typeof topic.is_new === 'boolean') return topic.is_new;
+  const sources = getTopicSources(topic);
+  return sources.length ? sources.some(source => source.is_new) : true;
+}
+
+function topicHasInsufficientContent(topic) {
+  if (topic.content_insufficient) return true;
+  return getTopicSources(topic).some(source => Number(source.article_text_length || 0) < 300);
 }
 
 function topicRapScore(topic) {
@@ -590,6 +684,97 @@ function topicRapScore(topic) {
     .filter(n => !Number.isNaN(n));
   if (!scores.length) return '-';
   return (scores.reduce((sum, n) => sum + n, 0) / scores.length).toFixed(1);
+}
+
+function updateMonitorStatus(message) {
+  document.getElementById('monitor-status').textContent = message;
+}
+
+function notifyDailyTopics(topics) {
+  if (!topics?.length || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const signature = topics.slice(0, 3).map(t => t.title).join('|');
+  if (!signature || signature === lastNotifiedSignature) return;
+  lastNotifiedSignature = signature;
+  new Notification('每日 RAP 選題待審核', {
+    body: `AI 挑出 ${topics.length} 個候選題，第一名：${topics[0].title || '未命名選題'}`
+  });
+}
+
+async function ensureNotificationPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  const permission = await Notification.requestPermission();
+  return permission === 'granted';
+}
+
+function notifyNewDailyTopics(topics) {
+  const newTopics = (topics || []).filter(isTopicNew);
+  if (!newTopics.length || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const signature = newTopics.slice(0, 3).map(t => t.title).join('|');
+  if (!signature || signature === lastNotifiedSignature) return;
+  lastNotifiedSignature = signature;
+  new Notification('每日 RAP 選題待審核', {
+    body: `AI 挑出 ${newTopics.length} 個新候選題，第一名：${newTopics[0].title || '未命名選題'}`
+  });
+}
+
+async function scanEttodayNow(isAuto = false) {
+  const listUrl = document.getElementById('ettoday-url').value.trim() || 'https://www.ettoday.net/news/news-list.htm';
+  const limit = Number(document.getElementById('scan-limit').value || 12);
+  const btn = document.getElementById('btn-ettoday-scan');
+  const spinner = document.getElementById('ettoday-spinner');
+  const resultsEl = document.getElementById('daily-results');
+
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+  updateMonitorStatus(`${isAuto ? '自動' : '手動'}掃描中：正在讀取 ETtoday 最新新聞與內文...`);
+  if (!isAuto) resultsEl.innerHTML = '<div class="info-text">正在讀取 ETtoday 最新新聞與內文...</div>';
+
+  try {
+    const r = await fetch('/api/ettoday_scan', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ list_url: listUrl, limit, topic_count: 5 })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      if (!isAuto) resultsEl.innerHTML = '';
+      updateMonitorStatus('掃描失敗：' + (data.error || '請稍後再試'));
+      return showError('daily-error', data.error || 'ETtoday 掃描失敗');
+    }
+    dailyTopicsResult = data;
+    dailySources = data.sources || [];
+    productionPackages = {};
+    renderDailyTopics(data.topics || []);
+    notifyNewDailyTopics(data.topics || []);
+    updateMonitorStatus(`最近掃描：${data.scanned_at || new Date().toLocaleString()}，讀取 ${data.candidate_count || data.source_count || 0} 篇，挑出 ${(data.topics || []).length} 個候選題。`);
+  } catch (e) {
+    updateMonitorStatus('連線失敗：' + e.message);
+    if (!isAuto) resultsEl.innerHTML = '';
+    showError('daily-error', '連線失敗：' + e.message);
+  } finally {
+    btn.disabled = false;
+    spinner.classList.add('hidden');
+  }
+}
+
+async function startEttodayMonitor() {
+  const minutes = Math.max(5, Number(document.getElementById('monitor-minutes').value || 30));
+  await ensureNotificationPermission();
+  stopEttodayMonitor(false);
+  const permissionText = ('Notification' in window) ? Notification.permission : '不支援';
+  updateMonitorStatus(`已啟動定時掃描，每 ${minutes} 分鐘掃一次。瀏覽器通知權限：${permissionText}`);
+  scanEttodayNow(true);
+  ettodayMonitorTimer = setInterval(() => scanEttodayNow(true), minutes * 60 * 1000);
+}
+
+function stopEttodayMonitor(showMessage = true) {
+  if (ettodayMonitorTimer) {
+    clearInterval(ettodayMonitorTimer);
+    ettodayMonitorTimer = null;
+  }
+  if (showMessage) updateMonitorStatus('已停止自動掃描。');
 }
 
 async function scanDailyTopics() {
@@ -626,8 +811,10 @@ async function scanDailyTopics() {
 
 function renderDailyTopics(topics) {
   const resultsEl = document.getElementById('daily-results');
+  const onlyNew = document.getElementById('only-new-topics')?.checked;
+  topics = onlyNew ? (topics || []).filter(isTopicNew) : (topics || []);
   if (!topics.length) {
-    resultsEl.innerHTML = '<div class="info-text">沒有掃描到可製作的選題，請增加新聞來源。</div>';
+    resultsEl.innerHTML = `<div class="info-text">${onlyNew ? '目前沒有新新聞候選題，可取消「只顯示新新聞」查看舊題。' : '沒有掃描到可製作的選題，請增加新聞來源。'}</div>`;
     return;
   }
 
@@ -639,6 +826,20 @@ function renderDailyTopics(topics) {
       : '無';
     const style = topic.suggested_style || topic.music_style || topic.suno_prompt || '未提供';
     const risk = topic.risk_level || '未提供';
+    const sources = getTopicSources(topic);
+    const insufficient = topicHasInsufficientContent(topic);
+    const sourceInfoHtml = sources.length ? sources.map(source => {
+      const length = Number(source.article_text_length || 0);
+      const status = source.fetch_status || 'unknown';
+      const newText = source.is_new ? '新新聞' : '已看過';
+      return `<div class="source-preview">
+        <div class="meta-label">抓取狀態</div>
+        <div class="meta-value">已抓內文：${length} 字｜狀態：${escapeHtml(status)}｜${newText}</div>
+        ${length < 300 ? '<div class="insufficient-warning">內文不足</div>' : ''}
+        <div class="meta-label" style="margin-top:8px">內文預覽</div>
+        <div class="meta-value">${escapeHtml(source.content_preview || '無')}</div>
+      </div>`;
+    }).join('') : '<div class="source-preview"><div class="meta-value">沒有來源抓取資訊。</div></div>';
     html += `<div class="topic-card" id="topic-card-${index}">
       <div class="topic-head">
         <div style="display:flex;gap:12px;align-items:flex-start">
@@ -658,6 +859,8 @@ function renderDailyTopics(topics) {
       </div>
       <div class="meta-box"><div class="meta-label">為什麼適合</div><div class="meta-value">${escapeHtml(topic.why_it_matters || topic.production_brief || '')}</div></div>
       <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險說明</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
+      ${insufficient ? '<div class="insufficient-warning">內文不足，需人工確認；AI 分數已保守處理。</div>' : ''}
+      ${sourceInfoHtml}
       <div id="package-${index}"></div>
     </div>`;
   });
