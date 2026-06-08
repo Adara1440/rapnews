@@ -597,11 +597,26 @@ let productionPackages = {};
 let ettodayMonitorTimer = null;
 let lastNotifiedSignature = '';
 
+function getPassword() {
+  const passwordEl = document.getElementById('password');
+  return passwordEl ? passwordEl.value.trim() : '';
+}
+
 function getHeaders() {
   return {
     'Content-Type': 'application/json',
-    'X-Access-Password': document.getElementById('password').value
+    'X-Access-Password': getPassword()
   };
+}
+
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...getHeaders(),
+      ...(options.headers || {})
+    }
+  });
 }
 
 function showError(id, msg) {
@@ -732,9 +747,8 @@ async function scanEttodayNow(isAuto = false) {
   if (!isAuto) resultsEl.innerHTML = '<div class="info-text">正在讀取 ETtoday 最新新聞與內文...</div>';
 
   try {
-    const r = await fetch('/api/ettoday_scan', {
+    const r = await apiFetch('/api/ettoday_scan', {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify({ list_url: listUrl, limit, topic_count: 5 })
     });
     const data = await r.json();
@@ -791,9 +805,8 @@ async function scanDailyTopics() {
   resultsEl.innerHTML = '<div class="info-text">正在掃描選題...</div>';
 
   try {
-    const r = await fetch('/api/daily_topics', {
+    const r = await apiFetch('/api/daily_topics', {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify({ topic_count: 5, sources: dailySources })
     });
     const data = await r.json();
@@ -884,9 +897,8 @@ async function generateProductionPackage(index) {
   box.innerHTML = '<div class="package-box info-text">正在產生製作包...</div>';
 
   try {
-    const r = await fetch('/api/production_package', {
+    const r = await apiFetch('/api/production_package', {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify({
         topic,
         sources: sourcesForTopic(topic),
@@ -968,7 +980,7 @@ async function analyzeNews() {
   btn.disabled = true;
   spinner.classList.remove('hidden');
   try {
-    const r = await fetch('/api/analyze', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ news_input: input }) });
+    const r = await apiFetch('/api/analyze', { method: 'POST', body: JSON.stringify({ news_input: input }) });
     const data = await r.json();
     if (!r.ok) return showError('analyze-error', data.error || '分析失敗');
     analysisResult = data;
@@ -1038,7 +1050,7 @@ async function generateMusic() {
   try {
     const tasks = [];
     for (let i = 0; i < 2; i++) {
-      const r = await fetch('/api/generate_music', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ lyrics, suno_prompt: sunoPrompt, title: `${title} v${i+1}` }) });
+      const r = await apiFetch('/api/generate_music', { method: 'POST', body: JSON.stringify({ lyrics, suno_prompt: sunoPrompt, title: `${title} v${i+1}` }) });
       const data = await r.json();
       if (!r.ok) { showError('music-error', data.error); continue; }
       tasks.push({ ...data, version: i + 1 });
@@ -1073,7 +1085,7 @@ function renderMusicCards(tasks) {
 function pollMusicStatus(taskId, version) {
   const interval = setInterval(async () => {
     try {
-      const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
+      const r = await apiFetch(`/api/status/${taskId}`);
       const data = await r.json();
       if (data.status === 'completed' && data.url) {
         clearInterval(interval);
@@ -1130,7 +1142,7 @@ async function generateSingleVideo(sceneId) {
   const statusEl = document.getElementById(`scene-status-${sceneId}`);
   if (statusEl) { statusEl.className = 'status-badge status-processing'; statusEl.innerHTML = '<span class="spinner"></span> 生成中'; }
   try {
-    const r = await fetch('/api/generate_video', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ prompt, scene_id: sceneId }) });
+    const r = await apiFetch('/api/generate_video', { method: 'POST', body: JSON.stringify({ prompt, scene_id: sceneId }) });
     const data = await r.json();
     if (!r.ok) {
       if (statusEl) { statusEl.className = 'status-badge status-failed'; statusEl.textContent = '✗ 失敗'; }
@@ -1145,7 +1157,7 @@ async function generateSingleVideo(sceneId) {
 function pollVideoStatus(taskId, sceneId) {
   const interval = setInterval(async () => {
     try {
-      const r = await fetch(`/api/status/${taskId}`, { headers: getHeaders() });
+      const r = await apiFetch(`/api/status/${taskId}`);
       const data = await r.json();
       if (data.status === 'completed' && data.url) {
         clearInterval(interval);
