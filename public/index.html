@@ -324,6 +324,76 @@ textarea:focus { outline: none; border-color: var(--accent); }
   font-weight: 700;
   color: var(--purple);
 }
+
+.daily-help {
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.daily-results { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+.topic-card {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.topic-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.topic-rank {
+  min-width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.topic-title { font-size: 18px; font-weight: 800; line-height: 1.4; }
+.topic-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.meta-box {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.meta-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.meta-value { font-size: 15px; line-height: 1.5; word-break: break-word; }
+.package-box {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 14px;
+}
+.package-section { margin-top: 14px; }
+.package-section:first-child { margin-top: 0; }
+.package-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.prewrap { white-space: pre-wrap; line-height: 1.7; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -338,6 +408,29 @@ textarea:focus { outline: none; border-color: var(--accent); }
   <div class="auth-bar">
     <label>🔑 密碼</label>
     <input type="password" id="password" placeholder="輸入存取密碼" />
+  </div>
+
+  <!-- Daily Topics -->
+  <div class="step-card" id="daily-topics-card">
+    <div class="step-header">
+      <div class="step-num">D</div>
+      <div class="step-title">每日 RAP 選題</div>
+    </div>
+    <div class="step-body">
+      <div class="daily-help info-text">
+        每行貼一則新聞。可直接貼網址，也可用「標題｜網址｜內文」格式貼入簡短新聞。
+      </div>
+      <textarea id="daily-input" rows="8" placeholder="https://example.com/news-a&#10;新聞標題｜https://example.com/news-b｜新聞內文摘要...&#10;另一則只有文字的新聞摘要..."></textarea>
+      <div class="section-actions">
+        <button class="btn btn-primary" id="btn-daily-scan" onclick="scanDailyTopics()">
+          <span id="daily-spinner" class="spinner hidden"></span>
+          掃描選題
+        </button>
+        <span class="info-text">會呼叫 /api/daily_topics，挑出適合做 RAP 新聞的題目。</span>
+      </div>
+      <div id="daily-error" class="error-msg hidden"></div>
+      <div id="daily-results" class="daily-results"></div>
+    </div>
   </div>
 
   <!-- Step 1 -->
@@ -425,6 +518,9 @@ textarea:focus { outline: none; border-color: var(--accent); }
 let analysisResult = null;
 let videoTasks = [];
 let selectedMusicUrl = '';
+let dailyTopicsResult = null;
+let dailySources = [];
+let productionPackages = {};
 
 function getHeaders() {
   return {
@@ -438,6 +534,213 @@ function showError(id, msg) {
   el.textContent = msg;
   el.classList.remove('hidden');
   setTimeout(() => el.classList.add('hidden'), 8000);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function linesToText(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join('\n');
+  if (value && typeof value === 'object') return Object.values(value).flat().filter(Boolean).join('\n');
+  return value || '';
+}
+
+function parseDailySources(raw) {
+  return raw
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const parts = line.includes('｜') ? line.split('｜') : line.split('|');
+      if (parts.length >= 3) {
+        return {
+          title: parts[0].trim(),
+          url: parts[1].trim(),
+          content: parts.slice(2).join('｜').trim()
+        };
+      }
+      if (/^https?:\/\//i.test(line)) return { url: line };
+      return { content: line };
+    });
+}
+
+function getTopicSourceUrls(topic) {
+  const urls = [];
+  const ids = Array.isArray(topic.source_ids) ? topic.source_ids : [];
+  const listedSources = dailyTopicsResult?.sources || [];
+  ids.forEach(id => {
+    const source = listedSources.find(s => Number(s.id) === Number(id));
+    if (source?.url) urls.push(source.url);
+  });
+  ['url', 'source_url', 'original_url'].forEach(key => {
+    if (topic[key] && !urls.includes(topic[key])) urls.push(topic[key]);
+  });
+  return urls;
+}
+
+function topicRapScore(topic) {
+  const scores = [topic.rap_potential, topic.public_interest, topic.visual_potential]
+    .map(Number)
+    .filter(n => !Number.isNaN(n));
+  if (!scores.length) return '-';
+  return (scores.reduce((sum, n) => sum + n, 0) / scores.length).toFixed(1);
+}
+
+async function scanDailyTopics() {
+  const raw = document.getElementById('daily-input').value.trim();
+  if (!raw) return alert('請先貼上新聞網址或新聞內容。');
+
+  dailySources = parseDailySources(raw);
+  productionPackages = {};
+  const btn = document.getElementById('btn-daily-scan');
+  const spinner = document.getElementById('daily-spinner');
+  const resultsEl = document.getElementById('daily-results');
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+  resultsEl.innerHTML = '<div class="info-text">正在掃描選題...</div>';
+
+  try {
+    const r = await fetch('/api/daily_topics', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ topic_count: 5, sources: dailySources })
+    });
+    const data = await r.json();
+    if (!r.ok) return showError('daily-error', data.error || '掃描選題失敗');
+    dailyTopicsResult = data;
+    renderDailyTopics(data.topics || []);
+  } catch (e) {
+    showError('daily-error', '連線失敗：' + e.message);
+    resultsEl.innerHTML = '';
+  } finally {
+    btn.disabled = false;
+    spinner.classList.add('hidden');
+  }
+}
+
+function renderDailyTopics(topics) {
+  const resultsEl = document.getElementById('daily-results');
+  if (!topics.length) {
+    resultsEl.innerHTML = '<div class="info-text">沒有掃描到可製作的選題，請增加新聞來源。</div>';
+    return;
+  }
+
+  let html = '';
+  topics.forEach((topic, index) => {
+    const urls = getTopicSourceUrls(topic);
+    const urlHtml = urls.length
+      ? urls.map((url, i) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">原文 ${i + 1}</a>`).join('、')
+      : '無';
+    const style = topic.suggested_style || topic.music_style || topic.suno_prompt || '未提供';
+    const risk = topic.risk_level || '未提供';
+    html += `<div class="topic-card" id="topic-card-${index}">
+      <div class="topic-head">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div class="topic-rank">${escapeHtml(topic.rank || index + 1)}</div>
+          <div>
+            <div class="topic-title">${escapeHtml(topic.title || '未命名選題')}</div>
+            <div class="info-text" style="margin-top:4px">${escapeHtml(topic.news_angle || '')}</div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-purple" id="btn-package-${index}" onclick="generateProductionPackage(${index})">產製作包</button>
+      </div>
+      <div class="topic-meta">
+        <div class="meta-box"><div class="meta-label">RAP 分數</div><div class="meta-value">${escapeHtml(topicRapScore(topic))}</div></div>
+        <div class="meta-box"><div class="meta-label">建議曲風</div><div class="meta-value">${escapeHtml(style)}</div></div>
+        <div class="meta-box"><div class="meta-label">風險等級</div><div class="meta-value">${escapeHtml(risk)}</div></div>
+        <div class="meta-box"><div class="meta-label">原文網址</div><div class="meta-value">${urlHtml}</div></div>
+      </div>
+      <div class="meta-box"><div class="meta-label">為什麼適合</div><div class="meta-value">${escapeHtml(topic.why_it_matters || topic.production_brief || '')}</div></div>
+      <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險說明</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
+      <div id="package-${index}"></div>
+    </div>`;
+  });
+  resultsEl.innerHTML = html;
+}
+
+function sourcesForTopic(topic) {
+  const ids = Array.isArray(topic.source_ids) ? topic.source_ids.map(Number) : [];
+  if (!ids.length) return dailySources;
+  const picked = ids.map(id => dailySources[id - 1]).filter(Boolean);
+  return picked.length ? picked : dailySources;
+}
+
+async function generateProductionPackage(index) {
+  const topic = dailyTopicsResult?.topics?.[index];
+  if (!topic) return showError('daily-error', '找不到這個選題，請重新掃描。');
+  const btn = document.getElementById(`btn-package-${index}`);
+  const box = document.getElementById(`package-${index}`);
+  btn.disabled = true;
+  btn.textContent = '製作中...';
+  box.innerHTML = '<div class="package-box info-text">正在產生製作包...</div>';
+
+  try {
+    const r = await fetch('/api/production_package', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        topic,
+        sources: sourcesForTopic(topic),
+        platform: 'YouTube Shorts / Reels / TikTok',
+        duration: '45-60 秒'
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      box.innerHTML = '';
+      return showError('daily-error', data.error || '製作包產生失敗');
+    }
+    productionPackages[index] = data;
+    renderProductionPackage(index, data, topic);
+  } catch (e) {
+    box.innerHTML = '';
+    showError('daily-error', '連線失敗：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '重新產製作包';
+  }
+}
+
+function renderProductionPackage(index, pkg, topic) {
+  const lyrics = pkg.lyrics_text || linesToText(pkg.rap_script);
+  const videoPrompts = (pkg.video_scenes || [])
+    .map(scene => `#${scene.id || ''} ${scene.section || ''}\n${scene.prompt || scene.description || ''}`)
+    .join('\n\n');
+  const youtubeTitle = pkg.youtube_title || pkg.social_copy?.youtube_title || pkg.thumbnail?.headline || topic.title || '';
+  const risks = [
+    ...(pkg.editorial_brief?.must_verify || []),
+    ...(pkg.editorial_brief?.avoid || []),
+    topic.risk_notes
+  ].filter(Boolean).join('\n');
+
+  document.getElementById(`package-${index}`).innerHTML = `<div class="package-box">
+    <div class="package-section">
+      <div class="package-title">歌詞</div>
+      <div class="prewrap">${escapeHtml(lyrics || '未提供')}</div>
+    </div>
+    <div class="package-section">
+      <div class="package-title">Suno prompt</div>
+      <div class="prewrap">${escapeHtml(pkg.suno_prompt || '未提供')}</div>
+    </div>
+    <div class="package-section">
+      <div class="package-title">影像 prompt</div>
+      <div class="prewrap">${escapeHtml(videoPrompts || '未提供')}</div>
+    </div>
+    <div class="package-section">
+      <div class="package-title">YouTube 標題</div>
+      <div class="prewrap">${escapeHtml(youtubeTitle || '未提供')}</div>
+    </div>
+    <div class="package-section">
+      <div class="package-title">風險提醒</div>
+      <div class="prewrap">${escapeHtml(risks || '無')}</div>
+    </div>
+  </div>`;
 }
 
 function buildLyricsText() {

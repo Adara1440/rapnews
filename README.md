@@ -26,6 +26,35 @@ X-Access-Password: your_password
 Content-Type: application/json
 ```
 
+## 網頁操作方式
+
+開啟首頁後，先在上方密碼欄輸入 `SITE_PASSWORD`。
+
+### 每日 RAP 選題
+
+1. 在「每日 RAP 選題」區塊的大文字框貼上多則新聞，每行一則。
+2. 可直接貼網址：
+
+```text
+https://example.com/news-a
+https://example.com/news-b
+```
+
+3. 也可貼簡短新聞，格式為：
+
+```text
+標題｜網址｜內文
+```
+
+4. 點「掃描選題」後，前端會呼叫 `POST /api/daily_topics`。
+5. 頁面會顯示排名、標題、RAP 分數、建議曲風、適合原因、風險等級、風險說明與原文網址。
+6. 點單一選題旁的「產製作包」，前端會呼叫 `POST /api/production_package`。
+7. 製作包會顯示歌詞、Suno prompt、影像 prompt、YouTube 標題與風險提醒。
+
+### 單篇新聞產製
+
+原本單篇新聞流程仍保留：在單篇新聞輸入區貼上新聞網址或內文，按分析後可繼續編輯歌詞、生成音樂、生成影片與下載素材。
+
 ## 既有 API
 
 ### `GET /`

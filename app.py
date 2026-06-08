@@ -292,6 +292,7 @@ def run_daily_topics(data):
       "rap_potential": 1,
       "public_interest": 1,
       "visual_potential": 1,
+      "suggested_style": "建議曲風，例如 Boom bap / Trap / Jersey club",
       "risk_level": "low",
       "risk_notes": "可能踩雷或需查證的地方",
       "source_ids": [1],
@@ -382,6 +383,7 @@ def run_production_package(data):
     "headline": "縮圖短標",
     "visual": "縮圖畫面建議"
   }},
+  "youtube_title": "適合 YouTube Shorts 的中文標題，40 字內",
   "social_copy": {{
     "caption": "社群貼文文案",
     "hashtags": ["#RAP新聞"]
