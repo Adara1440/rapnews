@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from functools import wraps
 
@@ -176,6 +177,227 @@ def call_gemini(prompt):
         raise Exception('Gemini 安全過濾擋掉了，請換一篇新聞或直接貼內文')
     return candidate['content']['parts'][0]['text']
 
+def get_json_payload():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, ({'error': '請使用 JSON 格式送出資料。'}, 400)
+    return data, None
+
+def _clean_text(value, limit=8000):
+    if value is None:
+        return ''
+    text = str(value).strip()
+    return text[:limit]
+
+def _source_from_item(item, idx):
+    if isinstance(item, str):
+        item = {'url': item} if item.strip().startswith('http') else {'content': item}
+    if not isinstance(item, dict):
+        return None, f'第 {idx} 筆來源格式不正確，請提供文字、網址，或包含 title/url/content 的物件。'
+
+    title = _clean_text(item.get('title'), 200) or f'來源 {idx}'
+    url = _clean_text(item.get('url'), 1000)
+    content = _clean_text(item.get('content') or item.get('text') or item.get('summary'), 8000)
+
+    if not content and url:
+        fetched = fetch_news(url)
+        if not fetched:
+            return None, f'第 {idx} 筆新聞網址讀取失敗，請改貼新聞內文或確認網址可以公開瀏覽。'
+        content = fetched
+
+    if not content:
+        return None, f'第 {idx} 筆來源缺少新聞內文或可讀取的網址。'
+
+    return {
+        'id': idx,
+        'title': title,
+        'url': url,
+        'content': content[:5000],
+    }, None
+
+def collect_news_sources(data):
+    raw_sources = (
+        data.get('sources')
+        or data.get('news_items')
+        or data.get('news_inputs')
+        or data.get('news_input')
+    )
+    if isinstance(raw_sources, (str, dict)):
+        raw_sources = [raw_sources]
+    if not isinstance(raw_sources, list) or not raw_sources:
+        return None, '請提供 sources、news_items、news_inputs 或 news_input，內容可以是新聞文字、網址或新聞物件。'
+
+    sources = []
+    errors = []
+    for idx, item in enumerate(raw_sources[:12], 1):
+        source, error = _source_from_item(item, idx)
+        if error:
+            errors.append(error)
+        elif source:
+            sources.append(source)
+
+    if not sources:
+        return None, '沒有可用的新聞來源。' + (' ' + ' '.join(errors[:3]) if errors else '')
+    return sources, None
+
+def sources_to_prompt(sources, per_source_limit=1800):
+    blocks = []
+    for source in sources:
+        blocks.append(
+            f"[{source['id']}] {source['title']}\n"
+            f"URL: {source.get('url') or '無'}\n"
+            f"內容:\n{source['content'][:per_source_limit]}"
+        )
+    return "\n\n---\n\n".join(blocks)
+
+def run_daily_topics(data):
+    sources, error = collect_news_sources(data)
+    if error:
+        return None, error
+
+    topic_count = data.get('topic_count', data.get('count', 5))
+    try:
+        topic_count = int(topic_count)
+    except (TypeError, ValueError):
+        return None, 'topic_count 必須是數字。'
+    topic_count = max(1, min(topic_count, 8))
+
+    package_date = _clean_text(data.get('date'), 30) or datetime.now().strftime('%Y-%m-%d')
+    audience = _clean_text(data.get('audience'), 200) or '台灣社群短影音觀眾'
+    tone = _clean_text(data.get('tone'), 200) or '犀利、好懂、有節奏感，但避免造謠與人身攻擊'
+    focus = _clean_text(data.get('focus'), 500) or '選出最適合做成 RAP 新聞的題目'
+
+    prompt = f"""
+你是 RAP 新聞節目總編輯。請根據以下新聞來源，做每日選題判斷。
+
+日期：{package_date}
+目標觀眾：{audience}
+風格：{tone}
+選題重點：{focus}
+需要題數：{topic_count}
+
+新聞來源：
+{sources_to_prompt(sources)}
+
+請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
+{{
+  "date": "{package_date}",
+  "editorial_summary": "今天整體新聞氣氛與選題方向，80 字內",
+  "topics": [
+    {{
+      "rank": 1,
+      "title": "選題標題",
+      "news_angle": "這題要怎麼講才有觀點",
+      "why_it_matters": "為什麼今天值得做",
+      "rap_potential": 1,
+      "public_interest": 1,
+      "visual_potential": 1,
+      "risk_level": "low",
+      "risk_notes": "可能踩雷或需查證的地方",
+      "source_ids": [1],
+      "suggested_hook": "一句適合當 Hook 的中文句子",
+      "production_brief": "給製作人的短 brief"
+    }}
+  ],
+  "not_recommended": [
+    {{"title": "不建議題目", "reason": "原因"}}
+  ]
+}}
+
+分數請用 1 到 5。source_ids 必須對應上方來源編號。請避免臆測來源沒有提供的事實。
+"""
+    raw = call_gemini(prompt)
+    result = parse_gemini_json(raw)
+    result['source_count'] = len(sources)
+    result['sources'] = [{'id': s['id'], 'title': s['title'], 'url': s['url']} for s in sources]
+    result['model_used'] = get_gemini_model()
+    return result, None
+
+def run_production_package(data):
+    sources, source_error = collect_news_sources(data)
+    topic = data.get('topic') or data.get('selected_topic') or {}
+    if isinstance(topic, str):
+        topic = {'title': topic}
+    if not isinstance(topic, dict):
+        return None, 'topic 必須是文字或物件。'
+
+    topic_title = _clean_text(topic.get('title') or data.get('title'), 200)
+    if not topic_title:
+        return None, '請提供 topic.title 或 title，才能產生製作包。'
+    if source_error:
+        sources = [{
+            'id': 1,
+            'title': topic_title,
+            'url': '',
+            'content': _clean_text(topic.get('production_brief') or topic.get('news_angle') or topic_title, 5000),
+        }]
+
+    package_date = _clean_text(data.get('date'), 30) or datetime.now().strftime('%Y-%m-%d')
+    duration = _clean_text(data.get('duration'), 50) or '45-60 秒'
+    platform = _clean_text(data.get('platform'), 100) or 'Shorts / Reels / TikTok'
+
+    prompt = f"""
+你是 RAP 新聞製作人。請把指定選題整理成可直接製作的 RAP 新聞每日製作包。
+
+日期：{package_date}
+平台：{platform}
+影片長度：{duration}
+
+指定選題：
+{json.dumps(topic, ensure_ascii=False)}
+
+可用新聞來源：
+{sources_to_prompt(sources, per_source_limit=2200)}
+
+請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
+{{
+  "date": "{package_date}",
+  "topic_title": "{topic_title}",
+  "editorial_brief": {{
+    "one_sentence": "一句話說明這集",
+    "key_facts": ["只列來源中能支持的事實"],
+    "angle": "本集觀點",
+    "must_verify": ["發布前必查事項"],
+    "avoid": ["不要說或容易誤導的內容"]
+  }},
+  "rap_script": {{
+    "cold_open": ["1-2 句開場"],
+    "verse1": ["4 句"],
+    "hook": ["4 句，可重複、好記"],
+    "verse2": ["4 句"],
+    "outro": ["2 句收尾"]
+  }},
+  "lyrics_text": "把 rap_script 串成可貼給音樂生成工具的完整歌詞",
+  "suno_prompt": "音樂風格提示，40 字內",
+  "video_scenes": [
+    {{
+      "id": 1,
+      "section": "cold_open",
+      "description": "畫面描述",
+      "prompt": "英文影像生成提示，9:16，no text",
+      "duration_seconds": 5
+    }}
+  ],
+  "thumbnail": {{
+    "headline": "縮圖短標",
+    "visual": "縮圖畫面建議"
+  }},
+  "social_copy": {{
+    "caption": "社群貼文文案",
+    "hashtags": ["#RAP新聞"]
+  }},
+  "production_checklist": ["剪輯、查證、上字幕、送音樂、送影片等工作清單"]
+}}
+
+請保持新聞準確，沒有來源支持的內容要放在 must_verify，不要寫成事實。
+"""
+    raw = call_gemini(prompt)
+    result = parse_gemini_json(raw)
+    result['source_count'] = len(sources)
+    result['sources'] = [{'id': s['id'], 'title': s['title'], 'url': s['url']} for s in sources]
+    result['model_used'] = get_gemini_model()
+    return result, None
+
 @app.route('/')
 def index():
     return send_from_directory('public', 'index.html')
@@ -184,6 +406,92 @@ def index():
 @require_password
 def current_model():
     return jsonify({'model': get_gemini_model()})
+
+@app.route('/api/daily_topics', methods=['POST'])
+@require_password
+def daily_topics():
+    data, payload_error = get_json_payload()
+    if payload_error:
+        body, status = payload_error
+        return jsonify(body), status
+    try:
+        result, error = run_daily_topics(data)
+        if error:
+            return jsonify({'error': error}), 400
+        return jsonify(result)
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'AI 回傳的選題資料不是有效 JSON，請重新送出。技術細節：{str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'每日選題產生失敗：{str(e)}'}), 500
+
+@app.route('/api/production_package', methods=['POST'])
+@require_password
+def production_package():
+    data, payload_error = get_json_payload()
+    if payload_error:
+        body, status = payload_error
+        return jsonify(body), status
+    try:
+        result, error = run_production_package(data)
+        if error:
+            return jsonify({'error': error}), 400
+        return jsonify(result)
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'AI 回傳的製作包不是有效 JSON，請重新送出。技術細節：{str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'製作包產生失敗：{str(e)}'}), 500
+
+@app.route('/api/daily_package', methods=['POST'])
+@require_password
+def daily_package():
+    data, payload_error = get_json_payload()
+    if payload_error:
+        body, status = payload_error
+        return jsonify(body), status
+    try:
+        topics_result, error = run_daily_topics(data)
+        if error:
+            return jsonify({'error': error}), 400
+
+        topics = topics_result.get('topics') or []
+        if not topics:
+            return jsonify({'error': 'AI 沒有選出可製作的題目，請增加新聞來源或調整選題條件。'}), 500
+
+        selected_rank = data.get('selected_rank', 1)
+        try:
+            selected_rank = int(selected_rank)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'selected_rank 必須是數字。'}), 400
+
+        selected_topic = None
+        for topic in topics:
+            try:
+                topic_rank = int(topic.get('rank', 0))
+            except (TypeError, ValueError):
+                topic_rank = 0
+            if topic_rank == selected_rank:
+                selected_topic = topic
+                break
+        if selected_topic is None:
+            selected_topic = topics[0]
+
+        package_data = dict(data)
+        package_data['topic'] = selected_topic
+        package_result, package_error = run_production_package(package_data)
+        if package_error:
+            return jsonify({'error': package_error}), 400
+
+        return jsonify({
+            'date': topics_result.get('date'),
+            'selected_topic': selected_topic,
+            'topics': topics_result,
+            'production_package': package_result,
+            'model_used': get_gemini_model(),
+        })
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'AI 回傳資料不是有效 JSON，請重新送出。技術細節：{str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'每日製作包產生失敗：{str(e)}'}), 500
 
 @app.route('/api/analyze', methods=['POST'])
 @require_password
