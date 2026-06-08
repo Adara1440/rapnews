@@ -149,6 +149,18 @@ Content-Type: application/json
 - `risk_level` 至少為 `medium`。
 - `risk_notes` 會包含「內文不足，需人工確認」。
 
+### Railway 與 ETtoday SSL 憑證問題
+
+Railway 執行環境若讀取 ETtoday 時遇到 SSL 憑證驗證錯誤，系統會先用正常憑證驗證抓取；只有發生 `SSLError` 時，才會關閉該次請求的憑證驗證並重試一次。這個 fallback 只用在 ETtoday 掃描路徑，不會把 `verify=False` 設成全站預設。
+
+如果備援抓取仍失敗，API 會回傳可讀錯誤訊息：
+
+```json
+{
+  "error": "讀取 ETtoday 時發生 SSL 憑證驗證問題，系統已嘗試備援抓取但仍失敗。請稍後再試。"
+}
+```
+
 ### `POST /api/daily_topics`
 
 根據多篇新聞來源產生每日 RAP 新聞選題清單。

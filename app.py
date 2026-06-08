@@ -20,6 +20,15 @@ SEEN_URLS_FILE = os.path.join(DATA_DIR, 'seen_urls.json')
 
 _GEMINI_MODEL = None
 
+def safe_get_url(url, headers=None, timeout=20):
+    try:
+        return requests.get(url, headers=headers, timeout=timeout, verify=True)
+    except requests.exceptions.SSLError:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        print(f'[safe_get_url] SSL verification failed, retrying without verification: {url}')
+        return requests.get(url, headers=headers, timeout=timeout, verify=False)
+
 def get_gemini_model():
     global _GEMINI_MODEL
     if _GEMINI_MODEL:
@@ -74,7 +83,7 @@ def fetch_news(url):
             'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8',
             'Referer': 'https://www.google.com/',
         }
-        r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+        r = safe_get_url(url, headers=headers, timeout=20)
         r.encoding = 'utf-8'
         if r.status_code == 200:
             soup = BeautifulSoup(r.text, 'html.parser')
@@ -321,7 +330,7 @@ def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.ht
 
     try:
         from bs4 import BeautifulSoup
-        r = requests.get(list_url, headers={
+        r = safe_get_url(list_url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
             'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8',
         }, timeout=20)
@@ -357,6 +366,8 @@ def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.ht
         if not candidates:
             return None, 'ETtoday 列表沒有解析到新聞連結，可能是網站版型改變或暫時無法讀取。'
         return candidates, None
+    except requests.exceptions.SSLError:
+        return None, '讀取 ETtoday 時發生 SSL 憑證驗證問題，系統已嘗試備援抓取但仍失敗。請稍後再試。'
     except Exception as e:
         return None, f'讀取 ETtoday 新聞列表時發生錯誤：{str(e)}'
 
