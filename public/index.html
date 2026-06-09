@@ -72,7 +72,7 @@ body::before {
   margin-top: 4px;
 }
 
-.main { max-width: 960px; margin: 0 auto; padding: 28px 20px; position: relative; z-index: 1; }
+.main { width: min(88vw, 1360px); max-width: 1360px; margin: 0 auto; padding: 28px 20px; position: relative; z-index: 1; }
 
 .auth-bar {
   background: var(--card);
@@ -396,11 +396,11 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .prewrap { white-space: pre-wrap; line-height: 1.7; word-break: break-word; }
 .monitor-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(4, 120px);
+  grid-template-columns: minmax(280px, 2fr) repeat(4, minmax(130px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
-.monitor-grid input {
+.monitor-grid input, .field input {
   width: 100%;
   background: var(--bg);
   border: 1.5px solid var(--border);
@@ -410,7 +410,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
   font-size: 15px;
   font-family: inherit;
 }
-.monitor-grid input:focus { outline: none; border-color: var(--accent); }
+.monitor-grid input:focus, .field input:focus { outline: none; border-color: var(--accent); }
 .monitor-status {
   background: rgba(123,47,190,0.08);
   border: 1.5px solid rgba(123,47,190,0.18);
@@ -444,6 +444,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
 @media (max-width: 760px) {
   .monitor-grid { grid-template-columns: 1fr; }
   .topic-head { flex-direction: column; }
+  .main { width: 100%; padding: 20px 14px; }
+  .candidate-layout { grid-template-columns: 1fr; }
 }
 .scan-summary-grid {
   display: grid;
@@ -451,13 +453,65 @@ textarea:focus { outline: none; border-color: var(--accent); }
   gap: 10px;
   margin-top: 14px;
 }
+.workspace-subtitle {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; font-weight: 800; color: var(--text); }
+.field small { color: var(--muted); line-height: 1.5; }
+.logic-note {
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-top: 12px;
+}
+.candidate-card {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+.candidate-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
+  gap: 18px;
+}
+.candidate-side {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.action-badge {
+  display: inline-flex;
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.action-good { background: rgba(0,200,150,0.12); color: #009970; }
+.action-watch { background: rgba(255,184,0,0.14); color: #B98200; }
+.action-bad { background: rgba(255,59,92,0.12); color: var(--red); }
+@media (max-width: 760px) {
+  .main { width: 100%; padding: 20px 14px; }
+  .monitor-grid { grid-template-columns: 1fr; }
+  .candidate-layout { grid-template-columns: 1fr; }
+  .auth-bar { flex-direction: column; align-items: stretch; }
+}
 </style>
 </head>
 <body>
 
 <div class="header">
   <div class="logo">🎤 Rap 說新聞</div>
-  <div class="logo-sub">貼上新聞網址 → AI 生洗腦歌詞 → 音樂 + 畫面素材</div>
+  <div class="logo-sub">每日選題 → 審核候選 → 產製 RAP 製作包</div>
 </div>
 
 <div class="main">
@@ -467,69 +521,114 @@ textarea:focus { outline: none; border-color: var(--accent); }
     <input type="password" id="password" placeholder="輸入存取密碼" />
   </div>
 
-  <!-- Daily Topics -->
+  <!-- Workspace 1: Auto scan -->
   <div class="step-card" id="daily-topics-card">
     <div class="step-header">
-      <div class="step-num">D</div>
-      <div class="step-title">每日 RAP 選題</div>
+      <div class="step-num">1</div>
+      <div>
+        <div class="step-title">1｜自動掃描 ETtoday</div>
+      </div>
     </div>
     <div class="step-body">
-      <div class="daily-help info-text">
-        自動掃 ETtoday 最新新聞，AI 會先讀內文再挑適合做 RAP 說新聞的題目。掃到選題後會用瀏覽器通知提醒你審核。
-      </div>
+      <div class="workspace-subtitle">還沒有題目時使用。系統會從 ETtoday 最新新聞中先粗篩，再深讀內文，挑出適合做 RAP 說新聞的候選題。</div>
       <div class="monitor-grid">
-        <input id="ettoday-url" value="https://www.ettoday.net/news/news-list.htm" aria-label="ETtoday 列表網址" />
-        <input id="monitor-minutes" type="number" min="5" value="30" aria-label="掃描間隔分鐘" />        <input id="scan-limit" type="number" min="1" max="300" value="100" aria-label="掃描列表數" title="掃描列表數" />
-        <input id="deep-read-limit" type="number" min="1" max="50" value="25" aria-label="AI 深讀數" title="AI 深讀數" />
-        <input id="topic-count" type="number" min="1" max="10" value="5" aria-label="最終候選數" title="最終候選數" />      </div>
-      <div class="section-actions" style="margin-top:0">
+        <div class="field">
+          <label for="ettoday-url">掃描來源</label>
+          <input id="ettoday-url" value="https://www.ettoday.net/news/news-list.htm" />
+          <small>預設掃 ETtoday 最新新聞列表。</small>
+        </div>
+        <div class="field">
+          <label for="monitor-minutes">掃描間隔</label>
+          <input id="monitor-minutes" type="number" min="5" value="30" />
+          <small>開著網頁時，每幾分鐘自動掃一次。</small>
+        </div>
+        <div class="field">
+          <label for="scan-limit">掃描列表數</label>
+          <input id="scan-limit" type="number" min="1" max="300" value="100" />
+          <small>先從新聞列表看幾則標題與分類，不讀全文。</small>
+        </div>
+        <div class="field">
+          <label for="deep-read-limit">AI 深讀數</label>
+          <input id="deep-read-limit" type="number" min="1" max="50" value="25" />
+          <small>從初篩後的新聞中，抓幾則全文給 AI 判斷。</small>
+        </div>
+        <div class="field">
+          <label for="topic-count">最終候選數</label>
+          <input id="topic-count" type="number" min="1" max="10" value="5" />
+          <small>最後顯示幾則候選題給你審核。</small>
+        </div>
+      </div>
+      <div class="logic-note">掃描邏輯：先看「掃描列表數」的新聞標題與分類 → 初步排除高風險與不適合題 → 抓「AI 深讀數」的新聞全文 → 最後推薦「最終候選數」則 RAP 題目。</div>
+      <div class="info-text" style="margin-top:10px">建議值：平常用 100 / 25 / 5；怕漏題用 200 / 35 / 8；快速測試用 30 / 10 / 3。</div>
+      <div class="section-actions">
         <button class="btn btn-primary" id="btn-ettoday-scan" onclick="scanEttodayNow()">
           <span id="ettoday-spinner" class="spinner hidden"></span>
           立即掃 ETtoday
         </button>
-        <button class="btn btn-purple" id="btn-monitor-start" onclick="startEttodayMonitor()">啟動定時通知</button>
+        <button class="btn btn-purple" id="btn-monitor-start" onclick="startEttodayMonitor()">啟動定時掃描</button>
         <button class="btn btn-outline" id="btn-monitor-stop" onclick="stopEttodayMonitor()">停止</button>
       </div>
       <label class="checkbox-row" style="margin-top:12px">
         <input type="checkbox" id="only-new-topics" checked onchange="renderDailyTopics(dailyTopicsResult?.topics || [])" />
         只顯示新新聞
       </label>
+      <div class="info-text" style="margin-top:6px">避免同一批新聞重複提醒。</div>
       <div id="monitor-status" class="monitor-status info-text">尚未啟動自動掃描。</div>
-      <div class="divider"></div>
-      <div class="daily-help info-text">
-        也可手動補充新聞，每行一則。格式：網址，或「標題｜網址｜內文」。
+    </div>
+  </div>
+
+  <!-- Workspace 2: Candidates -->
+  <div class="step-card" id="candidate-list-card">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div class="step-title">2｜候選題清單</div>
+    </div>
+    <div class="step-body">
+      <div class="workspace-subtitle">這裡會顯示 AI 從自動掃描或手動補充新聞中挑出的候選題。你只需要判斷：可做、觀望，還是不建議。</div>
+      <div id="daily-results" class="daily-results">
+        <div class="info-text">尚未產生候選題。請先使用「自動掃描 ETtoday」或下方「手動補充選題池」。</div>
       </div>
-      <textarea id="daily-input" rows="8" placeholder="https://example.com/news-a&#10;新聞標題｜https://example.com/news-b｜新聞內文摘要...&#10;另一則只有文字的新聞摘要..."></textarea>
+    </div>
+  </div>
+
+  <!-- Workspace 3: Manual pool -->
+  <div class="step-card" id="manual-pool-card">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div class="step-title">3｜手動補充選題池</div>
+    </div>
+    <div class="step-body">
+      <div class="workspace-subtitle">還沒決定要做哪一則時使用。把多則新聞貼在這裡，AI 會幫你一起評分排序，結果會出現在上方候選題清單。</div>
+      <textarea id="daily-input" rows="8" placeholder="每行一則，可填：&#10;https://example.com/news-a&#10;新聞標題｜https://example.com/news-b｜新聞內文摘要&#10;另一則只有文字的新聞摘要"></textarea>
       <div class="section-actions">
         <button class="btn btn-primary" id="btn-daily-scan" onclick="scanDailyTopics()">
           <span id="daily-spinner" class="spinner hidden"></span>
-          掃描手動清單
+          掃描這批新聞
         </button>
         <span class="info-text">手動清單會呼叫 /api/daily_topics；ETtoday 掃描會呼叫 /api/ettoday_scan。</span>
       </div>
       <div id="daily-error" class="error-msg hidden"></div>
-      <div id="daily-results" class="daily-results"></div>
     </div>
   </div>
 
-  <!-- Step 1 -->
-  <div class="step-card">
+  <!-- Workspace 4: Single article -->
+  <div class="step-card" id="single-rap-card">
     <div class="step-header">
-      <div class="step-num">1</div>
-      <div class="step-title">貼上新聞網址或內文</div>
+      <div class="step-num">4</div>
+      <div class="step-title">4｜單篇 RAP 製作</div>
     </div>
     <div class="step-body">
-      <textarea id="news-input" rows="4" placeholder="貼上新聞網址（如 https://www.ettoday.net/news/...）&#10;或直接貼入新聞內文"></textarea>
+      <div class="workspace-subtitle">已經決定要做這一則時使用。貼上一則新聞網址或完整內文，直接生成 RAP 歌詞、Suno prompt 與畫面素材。</div>
+      <textarea id="news-input" rows="5" placeholder="貼上一則新聞網址，或直接貼完整新聞內文。"></textarea>
       <div class="section-actions">
         <button class="btn btn-primary" id="btn-analyze" onclick="analyzeNews()">
           <span id="analyze-spinner" class="spinner hidden"></span>
-          🎵 分析新聞，生成 Rap 歌詞
+          生成這則 RAP
         </button>
       </div>
       <div id="analyze-error" class="error-msg hidden"></div>
     </div>
   </div>
-
   <!-- Step 2 -->
   <div class="step-card hidden" id="step2">
     <div class="step-header">
@@ -710,11 +809,12 @@ function topicRapScore(topic) {
 function renderScanSummary(summary = {}) {
   const resultsEl = document.getElementById('daily-results');
   const html = `<div class="scan-summary-grid">
-    <div class="meta-box"><div class="meta-label">掃描列表數</div><div class="meta-value">${summary.scan_limit ?? '-'}</div></div>
+    <div class="meta-box"><div class="meta-label">實際掃描列表數</div><div class="meta-value">${summary.scan_limit ?? '-'}</div></div>
     <div class="meta-box"><div class="meta-label">粗篩保留數</div><div class="meta-value">${summary.pre_filter_kept ?? '-'}</div></div>
     <div class="meta-box"><div class="meta-label">AI 深讀數</div><div class="meta-value">${summary.ai_deep_read_count ?? summary.deep_read_limit ?? '-'}</div></div>
     <div class="meta-box"><div class="meta-label">最終候選數</div><div class="meta-value">${summary.final_topic_count ?? '-'}</div></div>
-    <div class="meta-box"><div class="meta-label">排除高風險數</div><div class="meta-value">${summary.excluded_high_risk_count ?? 0}</div></div>
+    <div class="meta-box"><div class="meta-label">高風險排除數</div><div class="meta-value">${summary.excluded_high_risk_count ?? 0}</div></div>
+    <div class="meta-box"><div class="meta-label">掃描時間</div><div class="meta-value">${dailyTopicsResult?.scanned_at || new Date().toLocaleString()}</div></div>
   </div>`;
   resultsEl.insertAdjacentHTML('afterbegin', html);
 }
@@ -771,6 +871,7 @@ async function scanEttodayNow(isAuto = false) {
       method: 'POST',
       body: JSON.stringify({
         list_url: listUrl,
+        source_url: listUrl,
         scan_limit: scanLimit,
         deep_read_limit: deepReadLimit,
         topic_count: topicCount
@@ -789,11 +890,11 @@ async function scanEttodayNow(isAuto = false) {
     renderScanSummary(data.scan_summary || {});
     notifyNewDailyTopics(data.topics || []);
     const summary = data.scan_summary || {};
-    updateMonitorStatus(`最近掃描：${data.scanned_at || new Date().toLocaleString()}，列表 ${summary.scan_limit ?? '-'} 則，深讀 ${summary.ai_deep_read_count ?? data.source_count ?? 0} 則，候選 ${(data.topics || []).length} 則。`);
+    updateMonitorStatus(`完成掃描：${data.scanned_at || new Date().toLocaleString()}，列表 ${summary.scan_limit ?? '-'} 則，深讀 ${summary.ai_deep_read_count ?? data.source_count ?? 0} 則，候選 ${(data.topics || []).length} 則。`);
   } catch (e) {
-    updateMonitorStatus('連線失敗：' + e.message);
+    updateMonitorStatus('掃描失敗：' + e.message);
     if (!isAuto) resultsEl.innerHTML = '';
-    showError('daily-error', '連線失敗：' + e.message);
+    showError('daily-error', '掃描失敗：' + e.message);
   } finally {
     btn.disabled = false;
     spinner.classList.add('hidden');
@@ -804,8 +905,8 @@ async function startEttodayMonitor() {
   const minutes = Math.max(5, Number(document.getElementById('monitor-minutes').value || 30));
   await ensureNotificationPermission();
   stopEttodayMonitor(false);
-  const permissionText = ('Notification' in window) ? Notification.permission : '不支援';
-  updateMonitorStatus(`已啟動定時掃描，每 ${minutes} 分鐘掃一次。瀏覽器通知權限：${permissionText}`);
+  const permissionText = ('Notification' in window) ? Notification.permission : '瀏覽器不支援通知';
+  updateMonitorStatus(`已啟動定時掃描：每 ${minutes} 分鐘掃一次。通知狀態：${permissionText}`);
   scanEttodayNow(true);
   ettodayMonitorTimer = setInterval(() => scanEttodayNow(true), minutes * 60 * 1000);
 }
@@ -815,12 +916,12 @@ function stopEttodayMonitor(showMessage = true) {
     clearInterval(ettodayMonitorTimer);
     ettodayMonitorTimer = null;
   }
-  if (showMessage) updateMonitorStatus('已停止自動掃描。');
+  if (showMessage) updateMonitorStatus('已停止定時掃描。');
 }
 
 async function scanDailyTopics() {
   const raw = document.getElementById('daily-input').value.trim();
-  if (!raw) return alert('請先貼上新聞網址或新聞內容。');
+  if (!raw) return alert('請貼上新聞網址、標題或摘要，每行一則。');
 
   dailySources = parseDailySources(raw);
   productionPackages = {};
@@ -829,7 +930,7 @@ async function scanDailyTopics() {
   const resultsEl = document.getElementById('daily-results');
   btn.disabled = true;
   spinner.classList.remove('hidden');
-  resultsEl.innerHTML = '<div class="info-text">正在掃描選題...</div>';
+  resultsEl.innerHTML = '<div class="info-text">正在評分這批新聞...</div>';
 
   try {
     const r = await apiFetch('/api/daily_topics', {
@@ -837,11 +938,11 @@ async function scanDailyTopics() {
       body: JSON.stringify({ topic_count: 5, sources: dailySources })
     });
     const data = await r.json();
-    if (!r.ok) return showError('daily-error', data.error || '掃描選題失敗');
+    if (!r.ok) return showError('daily-error', data.error || '手動選題評分失敗');
     dailyTopicsResult = data;
     renderDailyTopics(data.topics || []);
   } catch (e) {
-    showError('daily-error', '連線失敗：' + e.message);
+    showError('daily-error', '評分失敗：' + e.message);
     resultsEl.innerHTML = '';
   } finally {
     btn.disabled = false;
@@ -849,65 +950,88 @@ async function scanDailyTopics() {
   }
 }
 
+function recommendationForTopic(topic) {
+  const score = parseFloat(topicRapScore(topic));
+  const risk = String(topic.risk_level || '').toLowerCase();
+  const sources = getTopicSources(topic);
+  const maxLength = sources.length ? Math.max(...sources.map(s => Number(s.article_text_length || 0))) : 0;
+  if (risk === 'high' || maxLength < 300) {
+    return { label: '不建議', css: 'action-bad', hint: '不建議產製作包' };
+  }
+  if (score >= 4.3 && risk === 'low' && maxLength >= 800) {
+    return { label: '可做', css: 'action-good', hint: '建議產製作包' };
+  }
+  return { label: '觀望', css: 'action-watch', hint: '先看原文再決定' };
+}
+
 function renderDailyTopics(topics) {
   const resultsEl = document.getElementById('daily-results');
   const onlyNew = document.getElementById('only-new-topics')?.checked;
   topics = onlyNew ? (topics || []).filter(isTopicNew) : (topics || []);
   if (!topics.length) {
-    resultsEl.innerHTML = `<div class="info-text">${onlyNew ? '目前沒有新新聞候選題，可取消「只顯示新新聞」查看舊題。' : '沒有掃描到可製作的選題，請增加新聞來源。'}</div>`;
+    resultsEl.innerHTML = `<div class="info-text">${onlyNew ? '目前沒有新的候選題。可以取消「只顯示新新聞」查看已看過的題目。' : '目前沒有可用候選題。請增加新聞來源或調整掃描設定。'}</div>`;
     return;
   }
 
   let html = '';
   topics.forEach((topic, index) => {
+    const sources = getTopicSources(topic);
+    const primarySource = sources[0] || {};
     const urls = getTopicSourceUrls(topic);
     const urlHtml = urls.length
       ? urls.map((url, i) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">原文 ${i + 1}</a>`).join('、')
       : '無';
     const style = topic.suggested_style || topic.music_style || topic.suno_prompt || '未提供';
     const risk = topic.risk_level || '未提供';
-    const preliminaryScore = topic.preliminary_score ?? '-';
-    const filterReason = topic.filter_reason || '';
+    const preliminaryScore = topic.preliminary_score ?? primarySource.preliminary_score ?? '-';
+    const filterReason = topic.filter_reason || primarySource.filter_reason || '';
     const rapFitReason = topic.rap_fit_reason || topic.why_it_matters || topic.production_brief || '';
     const rapHook = topic.rap_hook || topic.suggested_hook || '';
-    const sources = getTopicSources(topic);
+    const storyElements = linesToText(topic.story_elements || topic.key_facts || topic.editorial_brief?.key_facts || '');
+    const newsSummary = topic.news_summary || topic.summary || topic.news_angle || '';
+    const newsValue = topic.news_value || topic.why_it_matters || '';
+    const articleLength = Number(primarySource.article_text_length || 0);
+    const fetchStatus = primarySource.fetch_status || 'unknown';
+    const newText = isTopicNew(topic) ? '新新聞' : '已看過';
+    const contentPreview = primarySource.content_preview || '';
     const insufficient = topicHasInsufficientContent(topic);
-    const sourceInfoHtml = sources.length ? sources.map(source => {
-      const length = Number(source.article_text_length || 0);
-      const status = source.fetch_status || 'unknown';
-      const newText = source.is_new ? '新新聞' : '已看過';
-      return `<div class="source-preview">
-        <div class="meta-label">抓取狀態</div>
-        <div class="meta-value">已抓內文：${length} 字｜狀態：${escapeHtml(status)}｜${newText}</div>
-        ${length < 300 ? '<div class="insufficient-warning">內文不足</div>' : ''}
-        <div class="meta-label" style="margin-top:8px">內文預覽</div>
-        <div class="meta-value">${escapeHtml(source.content_preview || '無')}</div>
-      </div>`;
-    }).join('') : '<div class="source-preview"><div class="meta-value">沒有來源抓取資訊。</div></div>';
-    html += `<div class="topic-card" id="topic-card-${index}">
-      <div class="topic-head">
-        <div style="display:flex;gap:12px;align-items:flex-start">
-          <div class="topic-rank">${escapeHtml(topic.rank || index + 1)}</div>
-          <div>
-            <div class="topic-title">${escapeHtml(topic.title || '未命名選題')}</div>
-            <div class="info-text" style="margin-top:4px">${escapeHtml(topic.news_angle || '')}</div>
+    const recommendation = recommendationForTopic(topic);
+
+    html += `<div class="candidate-card" id="topic-card-${index}">
+      <div class="candidate-layout">
+        <div class="candidate-main">
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">
+            <div class="topic-rank">${escapeHtml(topic.rank || index + 1)}</div>
+            <div>
+              <div class="topic-title">${escapeHtml(topic.title || '未命名候選題')}</div>
+              <div class="info-text" style="margin-top:4px">${escapeHtml(newsSummary || '未提供新聞摘要')}</div>
+            </div>
           </div>
+          <div class="meta-box"><div class="meta-label">新聞價值</div><div class="meta-value">${escapeHtml(newsValue || '未提供')}</div></div>
+          <div class="meta-box" style="margin-top:10px"><div class="meta-label">為什麼適合 RAP</div><div class="meta-value">${escapeHtml(rapFitReason || '未提供')}</div></div>
+          <div class="meta-box" style="margin-top:10px"><div class="meta-label">可唱 Hook</div><div class="meta-value">${escapeHtml(rapHook || '未提供')}</div></div>
+          <div class="meta-box" style="margin-top:10px"><div class="meta-label">可唱素材</div><div class="meta-value prewrap">${escapeHtml(storyElements || '未提供')}</div></div>
+          <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險提醒</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
+          ${insufficient ? '<div class="insufficient-warning">內文不足，需人工確認。此題不建議直接產製作包。</div>' : ''}
+          <div class="source-preview"><div class="meta-label">內文預覽</div><div class="meta-value">${escapeHtml(contentPreview || '無')}</div></div>
         </div>
-        <button class="btn btn-sm btn-purple" id="btn-package-${index}" onclick="generateProductionPackage(${index})">產製作包</button>
+        <div class="candidate-side">
+          <span class="action-badge ${recommendation.css}">${recommendation.label}</span>
+          <div class="topic-meta" style="grid-template-columns:1fr">
+            <div class="meta-box"><div class="meta-label">RAP 分數</div><div class="meta-value">${escapeHtml(topicRapScore(topic))}</div></div>
+            <div class="meta-box"><div class="meta-label">初步可唱分</div><div class="meta-value">${escapeHtml(preliminaryScore)}</div></div>
+            <div class="meta-box"><div class="meta-label">建議曲風</div><div class="meta-value">${escapeHtml(style)}</div></div>
+            <div class="meta-box"><div class="meta-label">風險等級</div><div class="meta-value">${escapeHtml(risk)}</div></div>
+            <div class="meta-box"><div class="meta-label">已抓內文字數</div><div class="meta-value">${articleLength} 字</div></div>
+            <div class="meta-box"><div class="meta-label">抓取狀態</div><div class="meta-value">${escapeHtml(fetchStatus)}</div></div>
+            <div class="meta-box"><div class="meta-label">新新聞 / 已看過</div><div class="meta-value">${newText}</div></div>
+            <div class="meta-box"><div class="meta-label">原文連結</div><div class="meta-value">${urlHtml}</div></div>
+            <div class="meta-box"><div class="meta-label">初篩原因</div><div class="meta-value">${escapeHtml(filterReason || '未提供')}</div></div>
+          </div>
+          <div class="info-text" style="margin-top:12px">${recommendation.hint}</div>
+          <button class="btn btn-sm btn-purple" id="btn-package-${index}" onclick="generateProductionPackage(${index})" style="margin-top:10px;width:100%;justify-content:center">產製作包</button>
+        </div>
       </div>
-      <div class="topic-meta">
-        <div class="meta-box"><div class="meta-label">RAP 分數</div><div class="meta-value">${escapeHtml(topicRapScore(topic))}</div></div>
-        <div class="meta-box"><div class="meta-label">粗篩分數</div><div class="meta-value">${escapeHtml(preliminaryScore)}</div></div>
-        <div class="meta-box"><div class="meta-label">建議曲風</div><div class="meta-value">${escapeHtml(style)}</div></div>
-        <div class="meta-box"><div class="meta-label">風險等級</div><div class="meta-value">${escapeHtml(risk)}</div></div>
-        <div class="meta-box"><div class="meta-label">原文網址</div><div class="meta-value">${urlHtml}</div></div>
-      </div>
-      <div class="meta-box"><div class="meta-label">為什麼適合</div><div class="meta-value">${escapeHtml(rapFitReason || '未提供')}</div></div>
-      <div class="meta-box" style="margin-top:10px"><div class="meta-label">粗篩理由</div><div class="meta-value">${escapeHtml(filterReason || '未提供')}</div></div>
-      <div class="meta-box" style="margin-top:10px"><div class="meta-label">RAP Hook</div><div class="meta-value">${escapeHtml(rapHook || '未提供')}</div></div>
-      <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險說明</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
-      ${insufficient ? '<div class="insufficient-warning">內文不足，需人工確認；AI 分數已保守處理。</div>' : ''}
-      ${sourceInfoHtml}
       <div id="package-${index}"></div>
     </div>`;
   });
