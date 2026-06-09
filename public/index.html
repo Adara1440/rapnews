@@ -462,6 +462,18 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 13px; font-weight: 800; color: var(--text); }
 .field small { color: var(--muted); line-height: 1.5; }
+.input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.input-with-unit input { flex: 1; min-width: 0; }
+.unit-label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .logic-note {
   background: var(--bg);
   border: 1.5px dashed var(--border);
@@ -539,22 +551,34 @@ textarea:focus { outline: none; border-color: var(--accent); }
         </div>
         <div class="field">
           <label for="monitor-minutes">掃描間隔</label>
-          <input id="monitor-minutes" type="number" min="5" value="30" />
+          <div class="input-with-unit">
+            <input id="monitor-minutes" type="number" min="5" value="30" />
+            <span class="unit-label">分鐘</span>
+          </div>
           <small>開著網頁時，每幾分鐘自動掃一次。</small>
         </div>
         <div class="field">
           <label for="scan-limit">掃描列表數</label>
-          <input id="scan-limit" type="number" min="1" max="300" value="100" />
+          <div class="input-with-unit">
+            <input id="scan-limit" type="number" min="1" max="300" value="100" />
+            <span class="unit-label">則</span>
+          </div>
           <small>先從新聞列表看幾則標題與分類，不讀全文。</small>
         </div>
         <div class="field">
           <label for="deep-read-limit">AI 深讀數</label>
-          <input id="deep-read-limit" type="number" min="1" max="50" value="25" />
+          <div class="input-with-unit">
+            <input id="deep-read-limit" type="number" min="1" max="50" value="25" />
+            <span class="unit-label">則</span>
+          </div>
           <small>從初篩後的新聞中，抓幾則全文給 AI 判斷。</small>
         </div>
         <div class="field">
           <label for="topic-count">最終候選數</label>
-          <input id="topic-count" type="number" min="1" max="10" value="5" />
+          <div class="input-with-unit">
+            <input id="topic-count" type="number" min="1" max="10" value="5" />
+            <span class="unit-label">則</span>
+          </div>
           <small>最後顯示幾則候選題給你審核。</small>
         </div>
       </div>
@@ -565,7 +589,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
           <span id="ettoday-spinner" class="spinner hidden"></span>
           立即掃 ETtoday
         </button>
-        <button class="btn btn-purple" id="btn-monitor-start" onclick="startEttodayMonitor()">啟動定時掃描</button>
+        <button class="btn btn-purple" id="btn-monitor-start" onclick="startEttodayMonitor()">啟動定時通知</button>
         <button class="btn btn-outline" id="btn-monitor-stop" onclick="stopEttodayMonitor()">停止</button>
       </div>
       <label class="checkbox-row" style="margin-top:12px">
@@ -598,14 +622,14 @@ textarea:focus { outline: none; border-color: var(--accent); }
       <div class="step-title">3｜手動補充選題池</div>
     </div>
     <div class="step-body">
-      <div class="workspace-subtitle">還沒決定要做哪一則時使用。把多則新聞貼在這裡，AI 會幫你一起評分排序，結果會出現在上方候選題清單。</div>
+      <div class="workspace-subtitle">還沒決定要做哪一則時使用。把多則新聞貼在這裡，AI 會幫你一起評分排序，結果會出現在候選題清單。</div>
       <textarea id="daily-input" rows="8" placeholder="每行一則，可填：&#10;https://example.com/news-a&#10;新聞標題｜https://example.com/news-b｜新聞內文摘要&#10;另一則只有文字的新聞摘要"></textarea>
       <div class="section-actions">
         <button class="btn btn-primary" id="btn-daily-scan" onclick="scanDailyTopics()">
           <span id="daily-spinner" class="spinner hidden"></span>
           掃描這批新聞
         </button>
-        <span class="info-text">手動清單會呼叫 /api/daily_topics；ETtoday 掃描會呼叫 /api/ettoday_scan。</span>
+        <span class="info-text">貼多則新聞時，AI 會幫你一起評分排序；自動掃描則會從 ETtoday 最新新聞中挑題。</span>
       </div>
       <div id="daily-error" class="error-msg hidden"></div>
     </div>
