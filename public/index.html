@@ -977,12 +977,16 @@ async function scanDailyTopics() {
 function recommendationForTopic(topic) {
   const score = parseFloat(topicRapScore(topic));
   const risk = String(topic.risk_level || '').toLowerCase();
+  const safetyCategory = String(topic.content_safety_category || '').toLowerCase();
   const sources = getTopicSources(topic);
   const maxLength = sources.length ? Math.max(...sources.map(s => Number(s.article_text_length || 0))) : 0;
-  if (risk === 'high' || maxLength < 300) {
+  if (safetyCategory === 'blocked') {
     return { label: '不建議', css: 'action-bad', hint: '不建議產製作包' };
   }
-  if (score >= 4.3 && risk === 'low' && maxLength >= 800) {
+  if (safetyCategory === 'cautious') {
+    return { label: '觀望', css: 'action-watch', hint: '先看原文再決定' };
+  }
+  if (safetyCategory === 'preferred' && score >= 4.3 && risk === 'low' && maxLength >= 800) {
     return { label: '可做', css: 'action-good', hint: '建議產製作包' };
   }
   return { label: '觀望', css: 'action-watch', hint: '先看原文再決定' };
@@ -1018,8 +1022,12 @@ function renderDailyTopics(topics) {
     const fetchStatus = primarySource.fetch_status || 'unknown';
     const newText = isTopicNew(topic) ? '新新聞' : '已看過';
     const contentPreview = primarySource.content_preview || '';
+    const safetyCategory = topic.content_safety_category || primarySource.content_safety_category || 'cautious';
+    const safetyPassed = topic.safety_gate_passed === false ? '未通過' : '已通過';
+    const safetyReason = topic.safety_reason || primarySource.safety_reason || filterReason || '';
     const insufficient = topicHasInsufficientContent(topic);
     const recommendation = recommendationForTopic(topic);
+    const blocked = String(safetyCategory).toLowerCase() === 'blocked';
 
     html += `<div class="candidate-card" id="topic-card-${index}">
       <div class="candidate-layout">
@@ -1035,8 +1043,10 @@ function renderDailyTopics(topics) {
           <div class="meta-box" style="margin-top:10px"><div class="meta-label">為什麼適合 RAP</div><div class="meta-value">${escapeHtml(rapFitReason || '未提供')}</div></div>
           <div class="meta-box" style="margin-top:10px"><div class="meta-label">可唱 Hook</div><div class="meta-value">${escapeHtml(rapHook || '未提供')}</div></div>
           <div class="meta-box" style="margin-top:10px"><div class="meta-label">可唱素材</div><div class="meta-value prewrap">${escapeHtml(storyElements || '未提供')}</div></div>
+          <div class="meta-box" style="margin-top:10px"><div class="meta-label">排除原因 / 觀望原因</div><div class="meta-value">${escapeHtml(safetyReason || '未提供')}</div></div>
           <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險提醒</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
           ${insufficient ? '<div class="insufficient-warning">內文不足，需人工確認。此題不建議直接產製作包。</div>' : ''}
+          ${blocked ? '<div class="insufficient-warning">此題不建議 RAP 化</div>' : ''}
           <div class="source-preview"><div class="meta-label">內文預覽</div><div class="meta-value">${escapeHtml(contentPreview || '無')}</div></div>
         </div>
         <div class="candidate-side">
@@ -1046,6 +1056,8 @@ function renderDailyTopics(topics) {
             <div class="meta-box"><div class="meta-label">初步可唱分</div><div class="meta-value">${escapeHtml(preliminaryScore)}</div></div>
             <div class="meta-box"><div class="meta-label">建議曲風</div><div class="meta-value">${escapeHtml(style)}</div></div>
             <div class="meta-box"><div class="meta-label">風險等級</div><div class="meta-value">${escapeHtml(risk)}</div></div>
+            <div class="meta-box"><div class="meta-label">安全分類</div><div class="meta-value">${escapeHtml(safetyCategory)}</div></div>
+            <div class="meta-box"><div class="meta-label">安全門檻</div><div class="meta-value">${escapeHtml(safetyPassed)}</div></div>
             <div class="meta-box"><div class="meta-label">已抓內文字數</div><div class="meta-value">${articleLength} 字</div></div>
             <div class="meta-box"><div class="meta-label">抓取狀態</div><div class="meta-value">${escapeHtml(fetchStatus)}</div></div>
             <div class="meta-box"><div class="meta-label">新新聞 / 已看過</div><div class="meta-value">${newText}</div></div>
@@ -1053,7 +1065,7 @@ function renderDailyTopics(topics) {
             <div class="meta-box"><div class="meta-label">初篩原因</div><div class="meta-value">${escapeHtml(filterReason || '未提供')}</div></div>
           </div>
           <div class="info-text" style="margin-top:12px">${recommendation.hint}</div>
-          <button class="btn btn-sm btn-purple" id="btn-package-${index}" onclick="generateProductionPackage(${index})" style="margin-top:10px;width:100%;justify-content:center">產製作包</button>
+          <button class="btn btn-sm btn-purple" id="btn-package-${index}" onclick="generateProductionPackage(${index})" ${blocked ? 'disabled' : ''} style="margin-top:10px;width:100%;justify-content:center">${blocked ? '此題不建議 RAP 化' : '產製作包'}</button>
         </div>
       </div>
       <div id="package-${index}"></div>

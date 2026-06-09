@@ -252,6 +252,11 @@ def source_public_view(source):
         'content': source.get('content', ''),
         'fetch_status': source.get('fetch_status') or 'success',
         'is_new': bool(source.get('is_new', True)),
+        'content_safety_category': source.get('content_safety_category', 'cautious'),
+        'safety_gate_passed': bool(source.get('safety_gate_passed', True)),
+        'safety_reason': source.get('safety_reason', ''),
+        'should_make': bool(source.get('should_make', True)),
+        'risk_level': source.get('risk_level', ''),
     }
 
 def _source_from_item(item, idx):
@@ -283,10 +288,18 @@ def _source_from_item(item, idx):
         'content': content[:5000],
     }
     source.update(_source_meta(content, url, fetch_status, is_new))
+    safety = classify_news_safety({
+        'title': title,
+        'category': item.get('category', ''),
+        'content': content,
+    })
+    source.update(safety)
+    source['filter_reason'] = item.get('filter_reason') or safety['safety_reason']
     for key in [
         'article_text_length', 'content_preview', 'source_url', 'fetch_status',
         'is_new', 'category', 'time', 'preliminary_score', 'filter_reason',
-        'risk_flags'
+        'risk_flags', 'content_safety_category', 'safety_gate_passed',
+        'safety_reason', 'should_make', 'risk_level'
     ]:
         if key in item:
             source[key] = item[key]
@@ -328,6 +341,9 @@ def sources_to_prompt(sources, per_source_limit=1800):
             f"time: {source.get('time', '')}\n"
             f"preliminary_score: {source.get('preliminary_score', 0)}\n"
             f"filter_reason: {source.get('filter_reason', '')}\n"
+            f"content_safety_category: {source.get('content_safety_category', '')}\n"
+            f"safety_gate_passed: {source.get('safety_gate_passed', True)}\n"
+            f"safety_reason: {source.get('safety_reason', '')}\n"
             f"fetch_status: {source.get('fetch_status', 'success')}\n"
             f"article_text_length: {source.get('article_text_length', len(content))}\n"
             f"is_new: {source.get('is_new', True)}\n"
@@ -335,52 +351,164 @@ def sources_to_prompt(sources, per_source_limit=1800):
         )
     return "\n\n---\n\n".join(blocks)
 
+PREFERRED_TOPIC_KEYWORDS = [
+    '消費', '權益', '生活', '新制', '規則', '科技', '3C', 'AI', '人工智慧',
+    '交通', '防詐', '詐騙', '假投資', '健康', '科普', '財經', '股市',
+    '匯率', '房貸', '職場', '教育', '網路文化', '旅遊', '食安', '召回',
+    '商品', '上市', '電動車', '手機', 'App', '平台', '補助', '物價',
+]
+
+CAUTIOUS_TOPIC_KEYWORDS = [
+    '政治', '立法院', '行政院', '藍綠', '政黨', '司法', '法院', '檢方',
+    '企業醜聞', '弊案', '醫療個案', '名人', '藝人', '網紅', '爆料',
+]
+
+BLOCKED_TOPIC_KEYWORDS = [
+    '死亡', '罹難', '命喪', '身亡', '猝逝', '過世', '離世', '遺體',
+    '氣爆', '火災', '火警', '爆炸', '車禍', '墜樓',
+    '洪水受困', '受困', '搜救', '失蹤', '土石流', '地震罹難',
+    '家屬悲痛', '家屬', '喪禮', '告別式',
+    '性侵', '性騷', '猥褻', '兒少', '未成年',
+    '自殺', '自殘', '輕生',
+    '重大刑案', '兇殺', '凶殺', '命案', '槍擊', '砍殺', '虐童',
+    '桃色', '私密影像', '激吻', '外遇', '不倫', '羞辱',
+    '互控', '抹黑', '選舉攻防', '政治攻防',
+]
+
+PUBLIC_SAFETY_ALLOW_KEYWORDS = [
+    '防災', '避難', '演練', '警戒', '停班停課', '颱風路徑', '防火',
+    '逃生', '公共安全', '安全提醒', '召回', '檢修', '預警',
+]
+
+POLITICAL_ATTACK_KEYWORDS = ['互控', '砲轟', '怒轟', '開嗆', '抹黑', '爆料', '攻防', '選戰']
+
+def classify_news_safety(item):
+    title = str(item.get('title') or '')
+    category = str(item.get('category') or '')
+    content = str(item.get('content') or '')
+    haystack = f'{title} {category} {content[:500]}'
+    matched_blocked = [keyword for keyword in BLOCKED_TOPIC_KEYWORDS if keyword in haystack]
+    public_safety_info = any(keyword in haystack for keyword in PUBLIC_SAFETY_ALLOW_KEYWORDS)
+
+    if matched_blocked and not public_safety_info:
+        return {
+            'content_safety_category': 'blocked',
+            'risk_level': 'high',
+            'should_make': False,
+            'safety_gate_passed': False,
+            'safety_reason': '命中不適合 RAP 化的高風險題材：' + '、'.join(matched_blocked[:5]),
+            'risk_flags': matched_blocked,
+        }
+
+    if any(keyword in haystack for keyword in POLITICAL_ATTACK_KEYWORDS) and '政治' in haystack:
+        return {
+            'content_safety_category': 'blocked',
+            'risk_level': 'high',
+            'should_make': False,
+            'safety_gate_passed': False,
+            'safety_reason': '純政治攻防或未查證指控，不適合做成 RAP 候選。',
+            'risk_flags': ['政治攻防'],
+        }
+
+    matched_preferred = [keyword for keyword in PREFERRED_TOPIC_KEYWORDS if keyword in haystack]
+    matched_cautious = [keyword for keyword in CAUTIOUS_TOPIC_KEYWORDS if keyword in haystack]
+
+    if matched_preferred:
+        return {
+            'content_safety_category': 'preferred',
+            'risk_level': 'low',
+            'should_make': True,
+            'safety_gate_passed': True,
+            'safety_reason': '屬於適合解釋的生活、消費、科技或實用資訊題材：' + '、'.join(matched_preferred[:4]),
+            'risk_flags': matched_blocked,
+        }
+
+    if matched_cautious or public_safety_info:
+        return {
+            'content_safety_category': 'cautious',
+            'risk_level': 'medium',
+            'should_make': True,
+            'safety_gate_passed': True,
+            'safety_reason': '題材需要人工確認角度，避免放大爭議或敏感個案。',
+            'risk_flags': matched_blocked,
+        }
+
+    return {
+        'content_safety_category': 'cautious',
+        'risk_level': 'medium',
+        'should_make': True,
+        'safety_gate_passed': True,
+        'safety_reason': '未明確屬於優先題材，需人工確認是否有足夠公共性與實用性。',
+        'risk_flags': matched_blocked,
+    }
+
 def pre_filter_news_item(item):
     title = str(item.get('title') or '')
     category = str(item.get('category') or '')
     haystack = f'{title} {category}'
-    score = 20
+    safety = classify_news_safety(item)
+    if safety['content_safety_category'] == 'blocked':
+        return {
+            'preliminary_score': 0,
+            'keep': False,
+            'filter_reason': safety['safety_reason'],
+            'risk_flags': safety['risk_flags'],
+            'risk_level': 'high',
+            'should_make': False,
+            'content_safety_category': 'blocked',
+            'safety_gate_passed': False,
+            'safety_reason': safety['safety_reason'],
+        }
+
+    score = 12
     reasons = []
-    risk_flags = []
+    preferred_hits = [keyword for keyword in PREFERRED_TOPIC_KEYWORDS if keyword in haystack]
+    cautious_hits = [keyword for keyword in CAUTIOUS_TOPIC_KEYWORDS if keyword in haystack]
+    emotional_keywords = ['震驚', '悲痛', '淚崩', '痛哭', '驚悚', '恐怖', '爆', '怒轟', '開嗆', '爭議']
+    crime_keywords = ['竊盜', '搶劫', '詐欺案', '毒品', '嫌犯', '被告']
 
-    visual_keywords = ['畫面', '曝光', '直擊', '現場', '影片', '照片', '開箱', '對比', '排名']
-    contrast_keywords = ['反轉', '竟然', '卻', '但是', '爆', '掀', '爭議', '兩樣情', '變天']
-    explainer_categories = ['政治', '財經', '國際', '生活', '消費', '健康', '科技', 'AI', '3C', '房產', '社會']
-    explainer_keywords = ['政策', '法案', '新制', '補助', '物價', '通膨', '利率', 'AI', '科技', '醫師', '健康', '國際', '財報', '市場', '消費']
-    high_risk_keywords = ['死亡', '亡', '遺體', '命案', '凶殺', '砍', '槍擊', '性侵', '猥褻', '兒少', '未成年', '自殺', '輕生', '墜樓', '家屬悲痛', '罹難', '災難', '火警', '車禍', '虐童']
-
-    if any(k in haystack for k in visual_keywords):
-        score += 15
-        reasons.append('有強畫面或可視覺化元素')
-    if any(k in haystack for k in contrast_keywords):
-        score += 15
-        reasons.append('標題有反差或爭議張力')
-    if any(ch.isdigit() for ch in title):
+    if safety['content_safety_category'] == 'preferred':
+        score += 35
+        reasons.append('優先題材：生活、消費、科技或實用資訊')
+    elif safety['content_safety_category'] == 'cautious':
         score += 12
+        reasons.append('觀望題材，需確認公共性與表達角度')
+
+    if preferred_hits:
+        score += min(25, len(preferred_hits) * 8)
+        reasons.append('命中可解釋題材：' + '、'.join(preferred_hits[:4]))
+    if any(ch.isdigit() for ch in title):
+        score += 10
         reasons.append('標題含數字，適合做資訊節奏')
-    if any(k in haystack for k in explainer_categories + explainer_keywords):
-        score += 25
-        reasons.append('屬於可解釋的公共、科技、生活或財經題材')
+    if any(keyword in haystack for keyword in ['懶人包', '一次看', '新制', '注意', '提醒', '上路', '開賣', '上市']):
+        score += 12
+        reasons.append('具備規則、時間或實用提醒')
+    if cautious_hits:
+        score -= 12
+        reasons.append('含敏感或需查證題材：' + '、'.join(cautious_hits[:3]))
+    if any(keyword in haystack for keyword in emotional_keywords):
+        score -= 18
+        reasons.append('標題偏情緒煽動，不以刺激性作為 RAP 適合度')
+    if any(keyword in haystack for keyword in crime_keywords):
+        score -= 20
+        reasons.append('犯罪細節需保守處理')
 
-    for keyword in high_risk_keywords:
-        if keyword in haystack:
-            risk_flags.append(keyword)
-
-    keep = True
-    if risk_flags:
-        score -= 45
-        keep = False
-        reasons.append('命中高風險題材，避免娛樂化處理')
+    keep = score >= 35 and safety['content_safety_category'] != 'blocked'
 
     score = max(0, min(100, score))
     if not reasons:
-        reasons.append('資訊量或 RAP 畫面感普通')
+        reasons.append('資訊量或實用性不足，暫不優先深讀')
 
     return {
         'preliminary_score': score,
         'keep': keep,
         'filter_reason': '；'.join(reasons),
-        'risk_flags': risk_flags,
+        'risk_flags': safety['risk_flags'],
+        'risk_level': safety['risk_level'],
+        'should_make': safety['should_make'],
+        'content_safety_category': safety['content_safety_category'],
+        'safety_gate_passed': safety['safety_gate_passed'],
+        'safety_reason': safety['safety_reason'],
     }
 
 def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.htm', limit=100):
@@ -474,7 +602,10 @@ def build_sources_from_ettoday(list_url, scan_limit, deep_read_limit):
 
     deep_read_items = sorted(
         filtered,
-        key=lambda item: item.get('preliminary_score', 0),
+        key=lambda item: (
+            1 if item.get('content_safety_category') == 'preferred' else 0,
+            item.get('preliminary_score', 0),
+        ),
         reverse=True
     )[:deep_read_limit]
 
@@ -494,6 +625,11 @@ def build_sources_from_ettoday(list_url, scan_limit, deep_read_limit):
             'preliminary_score': item.get('preliminary_score', 0),
             'filter_reason': item.get('filter_reason', ''),
             'risk_flags': item.get('risk_flags', []),
+            'risk_level': item.get('risk_level', ''),
+            'content_safety_category': item.get('content_safety_category', 'cautious'),
+            'safety_gate_passed': item.get('safety_gate_passed', True),
+            'safety_reason': item.get('safety_reason', ''),
+            'should_make': item.get('should_make', True),
             'content': usable_content[:5000],
         }
         source.update(_source_meta(content or '', url, fetch_status, is_new))
@@ -516,6 +652,8 @@ def build_sources_from_ettoday(list_url, scan_limit, deep_read_limit):
                 'url': item.get('url', ''),
                 'risk_flags': item.get('risk_flags', []),
                 'filter_reason': item.get('filter_reason', ''),
+                'content_safety_category': item.get('content_safety_category', 'blocked'),
+                'safety_reason': item.get('safety_reason', ''),
             }
             for item in excluded_high_risk[:20]
         ],
@@ -524,6 +662,8 @@ def build_sources_from_ettoday(list_url, scan_limit, deep_read_limit):
 def apply_source_quality_rules(result, sources):
     source_map = {int(source.get('id', 0)): source for source in sources}
     topics = result.get('topics') or []
+    safe_topics = []
+    not_recommended = result.get('not_recommended') or []
     for topic in topics:
         ids = topic.get('source_ids') if isinstance(topic.get('source_ids'), list) else []
         matched = []
@@ -544,6 +684,22 @@ def apply_source_quality_rules(result, sources):
             topic['filter_reason'] = '；'.join(
                 source.get('filter_reason', '') for source in matched if source.get('filter_reason')
             )
+            categories = [source.get('content_safety_category', 'cautious') for source in matched]
+            if 'blocked' in categories:
+                topic['content_safety_category'] = 'blocked'
+            elif 'cautious' in categories:
+                topic['content_safety_category'] = 'cautious'
+            else:
+                topic['content_safety_category'] = 'preferred'
+            topic['safety_gate_passed'] = all(bool(source.get('safety_gate_passed', True)) for source in matched)
+            topic['safety_reason'] = '；'.join(
+                source.get('safety_reason', '') for source in matched if source.get('safety_reason')
+            )
+        else:
+            safety = classify_news_safety({'title': topic.get('title', '')})
+            topic['content_safety_category'] = safety['content_safety_category']
+            topic['safety_gate_passed'] = safety['safety_gate_passed']
+            topic['safety_reason'] = safety['safety_reason']
         topic['rap_fit_reason'] = topic.get('rap_fit_reason') or topic.get('why_it_matters') or topic.get('production_brief') or ''
         topic['rap_hook'] = topic.get('rap_hook') or topic.get('suggested_hook') or ''
 
@@ -565,6 +721,29 @@ def apply_source_quality_rules(result, sources):
             topic['risk_notes'] = current_notes if note in current_notes else (current_notes + '；' + note if current_notes else note)
         else:
             topic['content_insufficient'] = False
+
+        if topic.get('content_safety_category') == 'blocked' or str(topic.get('risk_level', '')).lower() == 'high':
+            topic['risk_level'] = 'high'
+            topic['should_make'] = False
+            topic['safety_gate_passed'] = False
+            reason = topic.get('safety_reason') or topic.get('risk_notes') or '高風險題材，不適合 RAP 化'
+            topic['risk_notes'] = reason
+            not_recommended.append({
+                'title': topic.get('title', '未命名題目'),
+                'reason': reason,
+                'content_safety_category': 'blocked',
+            })
+            continue
+
+        if topic.get('content_safety_category') == 'cautious':
+            topic['risk_level'] = 'medium' if str(topic.get('risk_level', '')).lower() == 'low' else topic.get('risk_level', 'medium')
+            topic['should_make'] = False
+        else:
+            topic['should_make'] = True
+
+        safe_topics.append(topic)
+    result['topics'] = safe_topics
+    result['not_recommended'] = not_recommended
     return result
 
 def run_daily_topics(data):
@@ -597,6 +776,9 @@ def run_daily_topics(data):
 {sources_to_prompt(sources)}
 
 Editorial rules:
+- RAP 新聞不是選最刺激、最悲傷、最有衝突的新聞。
+- RAP 新聞要選能用節奏講清楚、讓觀眾聽懂、又不冒犯的新聞。
+- Final topic selection order: 1) safety and ethics, 2) can explain the article clearly with rap, 3) practical information or daily-life relevance, 4) memorable hook, 5) concrete numbers/rules/time/people, 6) no suffering exploitation, no humiliation, no amplification of unverified accusations.
 - Judge each candidate by the article body, not only by the headline.
 - Prefer topics that can explain what happened, who is affected, the core conflict, and the next thing to watch within 45-60 seconds.
 - If the article body is too thin to support an explanatory news rap, put it in not_recommended.
@@ -605,6 +787,12 @@ Editorial rules:
 - You do not need to fill all {topic_count} slots. Return only topics that are truly suitable for explanatory rap news.
 - Important news that is too tragic, too sensitive, or not suitable to rap should not be forced into the final list.
 - Final judgment must be based on the full article content provided here, not only on title, category, or preliminary_score.
+- Do not fill all {topic_count} slots just to satisfy the count. If only 1 or 2 are suitable, return only 1 or 2.
+- high risk or content_safety_category=blocked topics must never appear in topics.
+- 氣爆、死亡、天災受困、剛過世名人、桃色糾紛、政治互控不得列為「可做」或 final topic.
+- If a story is only suitable as normal news but not suitable for rap explanation, do not select it.
+- Blocked topics include death, disaster casualties, car crashes, fire, explosion, sexual crimes, children victims, suicide, homicide, family grief, humiliating gossip, recently deceased celebrities, and pure political attacks.
+- Preferred topics include consumer rights, daily rules, tech/3C/AI, traffic rules, anti-fraud, health science without death cases, plain-language finance, policy changes without partisan attack, workplace, education, internet culture, travel, food safety, and product recall.
 
 請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
 {{
@@ -622,6 +810,10 @@ Editorial rules:
       "suggested_style": "建議曲風，例如 Boom bap / Trap / Jersey club",
       "risk_level": "low",
       "risk_notes": "可能踩雷或需查證的地方",
+      "content_safety_category": "preferred",
+      "safety_gate_passed": true,
+      "safety_reason": "為何通過安全門檻，或為何需要觀望",
+      "should_make": true,
       "source_ids": [1],
       "suggested_hook": "一句適合當 Hook 的中文句子",
       "rap_fit_reason": "為什麼這題適合用 RAP 說新聞",
@@ -630,11 +822,11 @@ Editorial rules:
     }}
   ],
   "not_recommended": [
-    {{"title": "不建議題目", "reason": "原因"}}
+    {{"title": "不建議題目", "reason": "原因", "content_safety_category": "blocked"}}
   ]
 }}
 
-分數請用 1 到 5。source_ids 必須對應上方來源編號。請避免臆測來源沒有提供的事實。
+分數請用 1 到 5。source_ids 必須對應上方來源編號。content_safety_category 只能是 preferred、cautious、blocked。請避免臆測來源沒有提供的事實。
 """
     raw = call_gemini(prompt)
     result = parse_gemini_json(raw)
@@ -655,6 +847,8 @@ def run_production_package(data):
     topic_title = _clean_text(topic.get('title') or data.get('title'), 200)
     if not topic_title:
         return None, '請提供 topic.title 或 title，才能產生製作包。'
+    if str(topic.get('content_safety_category', '')).lower() == 'blocked':
+        return None, '此題屬於高風險或不建議 RAP 化題材，請改選生活、消費、科技、政策新制、防詐等較適合解釋的新聞。'
     if source_error:
         sources = [{
             'id': 1,
