@@ -396,7 +396,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .prewrap { white-space: pre-wrap; line-height: 1.7; word-break: break-word; }
 .monitor-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 120px 120px;
+  grid-template-columns: minmax(220px, 1fr) repeat(4, 120px);
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -445,6 +445,12 @@ textarea:focus { outline: none; border-color: var(--accent); }
   .monitor-grid { grid-template-columns: 1fr; }
   .topic-head { flex-direction: column; }
 }
+.scan-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
 </style>
 </head>
 <body>
@@ -473,9 +479,9 @@ textarea:focus { outline: none; border-color: var(--accent); }
       </div>
       <div class="monitor-grid">
         <input id="ettoday-url" value="https://www.ettoday.net/news/news-list.htm" aria-label="ETtoday 列表網址" />
-        <input id="monitor-minutes" type="number" min="5" value="30" aria-label="掃描間隔分鐘" />
-        <input id="scan-limit" type="number" min="3" max="20" value="12" aria-label="每次讀取篇數" />
-      </div>
+        <input id="monitor-minutes" type="number" min="5" value="30" aria-label="掃描間隔分鐘" />        <input id="scan-limit" type="number" min="1" max="300" value="100" aria-label="掃描列表數" title="掃描列表數" />
+        <input id="deep-read-limit" type="number" min="1" max="50" value="25" aria-label="AI 深讀數" title="AI 深讀數" />
+        <input id="topic-count" type="number" min="1" max="10" value="5" aria-label="最終候選數" title="最終候選數" />      </div>
       <div class="section-actions" style="margin-top:0">
         <button class="btn btn-primary" id="btn-ettoday-scan" onclick="scanEttodayNow()">
           <span id="ettoday-spinner" class="spinner hidden"></span>
@@ -701,6 +707,18 @@ function topicRapScore(topic) {
   return (scores.reduce((sum, n) => sum + n, 0) / scores.length).toFixed(1);
 }
 
+function renderScanSummary(summary = {}) {
+  const resultsEl = document.getElementById('daily-results');
+  const html = `<div class="scan-summary-grid">
+    <div class="meta-box"><div class="meta-label">掃描列表數</div><div class="meta-value">${summary.scan_limit ?? '-'}</div></div>
+    <div class="meta-box"><div class="meta-label">粗篩保留數</div><div class="meta-value">${summary.pre_filter_kept ?? '-'}</div></div>
+    <div class="meta-box"><div class="meta-label">AI 深讀數</div><div class="meta-value">${summary.ai_deep_read_count ?? summary.deep_read_limit ?? '-'}</div></div>
+    <div class="meta-box"><div class="meta-label">最終候選數</div><div class="meta-value">${summary.final_topic_count ?? '-'}</div></div>
+    <div class="meta-box"><div class="meta-label">排除高風險數</div><div class="meta-value">${summary.excluded_high_risk_count ?? 0}</div></div>
+  </div>`;
+  resultsEl.insertAdjacentHTML('afterbegin', html);
+}
+
 function updateMonitorStatus(message) {
   document.getElementById('monitor-status').textContent = message;
 }
@@ -736,7 +754,9 @@ function notifyNewDailyTopics(topics) {
 
 async function scanEttodayNow(isAuto = false) {
   const listUrl = document.getElementById('ettoday-url').value.trim() || 'https://www.ettoday.net/news/news-list.htm';
-  const limit = Number(document.getElementById('scan-limit').value || 12);
+  const scanLimit = Math.min(300, Math.max(1, Number(document.getElementById('scan-limit').value || 100)));
+  const deepReadLimit = Math.min(50, Math.max(1, Number(document.getElementById('deep-read-limit').value || 25)));
+  const topicCount = Math.min(10, Math.max(1, Number(document.getElementById('topic-count').value || 5)));
   const btn = document.getElementById('btn-ettoday-scan');
   const spinner = document.getElementById('ettoday-spinner');
   const resultsEl = document.getElementById('daily-results');
@@ -749,7 +769,12 @@ async function scanEttodayNow(isAuto = false) {
   try {
     const r = await apiFetch('/api/ettoday_scan', {
       method: 'POST',
-      body: JSON.stringify({ list_url: listUrl, limit, topic_count: 5 })
+      body: JSON.stringify({
+        list_url: listUrl,
+        scan_limit: scanLimit,
+        deep_read_limit: deepReadLimit,
+        topic_count: topicCount
+      })
     });
     const data = await r.json();
     if (!r.ok) {
@@ -761,8 +786,10 @@ async function scanEttodayNow(isAuto = false) {
     dailySources = data.sources || [];
     productionPackages = {};
     renderDailyTopics(data.topics || []);
+    renderScanSummary(data.scan_summary || {});
     notifyNewDailyTopics(data.topics || []);
-    updateMonitorStatus(`最近掃描：${data.scanned_at || new Date().toLocaleString()}，讀取 ${data.candidate_count || data.source_count || 0} 篇，挑出 ${(data.topics || []).length} 個候選題。`);
+    const summary = data.scan_summary || {};
+    updateMonitorStatus(`最近掃描：${data.scanned_at || new Date().toLocaleString()}，列表 ${summary.scan_limit ?? '-'} 則，深讀 ${summary.ai_deep_read_count ?? data.source_count ?? 0} 則，候選 ${(data.topics || []).length} 則。`);
   } catch (e) {
     updateMonitorStatus('連線失敗：' + e.message);
     if (!isAuto) resultsEl.innerHTML = '';
@@ -839,6 +866,10 @@ function renderDailyTopics(topics) {
       : '無';
     const style = topic.suggested_style || topic.music_style || topic.suno_prompt || '未提供';
     const risk = topic.risk_level || '未提供';
+    const preliminaryScore = topic.preliminary_score ?? '-';
+    const filterReason = topic.filter_reason || '';
+    const rapFitReason = topic.rap_fit_reason || topic.why_it_matters || topic.production_brief || '';
+    const rapHook = topic.rap_hook || topic.suggested_hook || '';
     const sources = getTopicSources(topic);
     const insufficient = topicHasInsufficientContent(topic);
     const sourceInfoHtml = sources.length ? sources.map(source => {
@@ -866,11 +897,14 @@ function renderDailyTopics(topics) {
       </div>
       <div class="topic-meta">
         <div class="meta-box"><div class="meta-label">RAP 分數</div><div class="meta-value">${escapeHtml(topicRapScore(topic))}</div></div>
+        <div class="meta-box"><div class="meta-label">粗篩分數</div><div class="meta-value">${escapeHtml(preliminaryScore)}</div></div>
         <div class="meta-box"><div class="meta-label">建議曲風</div><div class="meta-value">${escapeHtml(style)}</div></div>
         <div class="meta-box"><div class="meta-label">風險等級</div><div class="meta-value">${escapeHtml(risk)}</div></div>
         <div class="meta-box"><div class="meta-label">原文網址</div><div class="meta-value">${urlHtml}</div></div>
       </div>
-      <div class="meta-box"><div class="meta-label">為什麼適合</div><div class="meta-value">${escapeHtml(topic.why_it_matters || topic.production_brief || '')}</div></div>
+      <div class="meta-box"><div class="meta-label">為什麼適合</div><div class="meta-value">${escapeHtml(rapFitReason || '未提供')}</div></div>
+      <div class="meta-box" style="margin-top:10px"><div class="meta-label">粗篩理由</div><div class="meta-value">${escapeHtml(filterReason || '未提供')}</div></div>
+      <div class="meta-box" style="margin-top:10px"><div class="meta-label">RAP Hook</div><div class="meta-value">${escapeHtml(rapHook || '未提供')}</div></div>
       <div class="meta-box" style="margin-top:10px"><div class="meta-label">風險說明</div><div class="meta-value">${escapeHtml(topic.risk_notes || '無')}</div></div>
       ${insufficient ? '<div class="insufficient-warning">內文不足，需人工確認；AI 分數已保守處理。</div>' : ''}
       ${sourceInfoHtml}

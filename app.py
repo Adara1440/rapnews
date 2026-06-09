@@ -242,6 +242,11 @@ def source_public_view(source):
         'title': source.get('title', ''),
         'url': source.get('url', ''),
         'source_url': source.get('source_url') or source.get('url', ''),
+        'category': source.get('category', ''),
+        'time': source.get('time', ''),
+        'preliminary_score': source.get('preliminary_score', 0),
+        'filter_reason': source.get('filter_reason', ''),
+        'risk_flags': source.get('risk_flags', []),
         'article_text_length': int(source.get('article_text_length') or len(source.get('content', ''))),
         'content_preview': source.get('content_preview') or _clean_text(source.get('content'), 120),
         'content': source.get('content', ''),
@@ -278,7 +283,11 @@ def _source_from_item(item, idx):
         'content': content[:5000],
     }
     source.update(_source_meta(content, url, fetch_status, is_new))
-    for key in ['article_text_length', 'content_preview', 'source_url', 'fetch_status', 'is_new']:
+    for key in [
+        'article_text_length', 'content_preview', 'source_url', 'fetch_status',
+        'is_new', 'category', 'time', 'preliminary_score', 'filter_reason',
+        'risk_flags'
+    ]:
         if key in item:
             source[key] = item[key]
     return source, None
@@ -315,6 +324,10 @@ def sources_to_prompt(sources, per_source_limit=1800):
         blocks.append(
             f"[{source.get('id')}] {source.get('title', '')}\n"
             f"URL: {source.get('url') or source.get('source_url') or 'none'}\n"
+            f"category: {source.get('category', '')}\n"
+            f"time: {source.get('time', '')}\n"
+            f"preliminary_score: {source.get('preliminary_score', 0)}\n"
+            f"filter_reason: {source.get('filter_reason', '')}\n"
             f"fetch_status: {source.get('fetch_status', 'success')}\n"
             f"article_text_length: {source.get('article_text_length', len(content))}\n"
             f"is_new: {source.get('is_new', True)}\n"
@@ -322,11 +335,59 @@ def sources_to_prompt(sources, per_source_limit=1800):
         )
     return "\n\n---\n\n".join(blocks)
 
-def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.htm', limit=12):
+def pre_filter_news_item(item):
+    title = str(item.get('title') or '')
+    category = str(item.get('category') or '')
+    haystack = f'{title} {category}'
+    score = 20
+    reasons = []
+    risk_flags = []
+
+    visual_keywords = ['畫面', '曝光', '直擊', '現場', '影片', '照片', '開箱', '對比', '排名']
+    contrast_keywords = ['反轉', '竟然', '卻', '但是', '爆', '掀', '爭議', '兩樣情', '變天']
+    explainer_categories = ['政治', '財經', '國際', '生活', '消費', '健康', '科技', 'AI', '3C', '房產', '社會']
+    explainer_keywords = ['政策', '法案', '新制', '補助', '物價', '通膨', '利率', 'AI', '科技', '醫師', '健康', '國際', '財報', '市場', '消費']
+    high_risk_keywords = ['死亡', '亡', '遺體', '命案', '凶殺', '砍', '槍擊', '性侵', '猥褻', '兒少', '未成年', '自殺', '輕生', '墜樓', '家屬悲痛', '罹難', '災難', '火警', '車禍', '虐童']
+
+    if any(k in haystack for k in visual_keywords):
+        score += 15
+        reasons.append('有強畫面或可視覺化元素')
+    if any(k in haystack for k in contrast_keywords):
+        score += 15
+        reasons.append('標題有反差或爭議張力')
+    if any(ch.isdigit() for ch in title):
+        score += 12
+        reasons.append('標題含數字，適合做資訊節奏')
+    if any(k in haystack for k in explainer_categories + explainer_keywords):
+        score += 25
+        reasons.append('屬於可解釋的公共、科技、生活或財經題材')
+
+    for keyword in high_risk_keywords:
+        if keyword in haystack:
+            risk_flags.append(keyword)
+
+    keep = True
+    if risk_flags:
+        score -= 45
+        keep = False
+        reasons.append('命中高風險題材，避免娛樂化處理')
+
+    score = max(0, min(100, score))
+    if not reasons:
+        reasons.append('資訊量或 RAP 畫面感普通')
+
+    return {
+        'preliminary_score': score,
+        'keep': keep,
+        'filter_reason': '；'.join(reasons),
+        'risk_flags': risk_flags,
+    }
+
+def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.htm', limit=100):
     try:
-        limit = max(1, min(int(limit), 20))
+        limit = max(1, min(int(limit), 300))
     except (TypeError, ValueError):
-        limit = 12
+        limit = 100
 
     try:
         from bs4 import BeautifulSoup
@@ -356,8 +417,26 @@ def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.ht
                 url = urljoin(list_url, href)
                 if 'ettoday.net' not in url or '/news/' not in url or url in seen:
                     continue
+                parent = link.find_parent('h3') or link.parent
+                parent_text = ' '.join(parent.get_text(' ', strip=True).split()) if parent else title
+                category = ''
+                time_text = ''
+                if parent:
+                    em = parent.find('em')
+                    date = parent.find(class_='date')
+                    category = em.get_text(' ', strip=True) if em else ''
+                    time_text = date.get_text(' ', strip=True) if date else ''
+                if not time_text:
+                    import re as _re
+                    match = _re.search(r'\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}', parent_text)
+                    time_text = match.group(0) if match else ''
                 seen.add(url)
-                candidates.append({'title': title, 'url': url})
+                candidates.append({
+                    'title': title,
+                    'url': url,
+                    'category': category,
+                    'time': time_text,
+                })
                 if len(candidates) >= limit:
                     break
             if len(candidates) >= limit:
@@ -371,15 +450,36 @@ def fetch_ettoday_candidates(list_url='https://www.ettoday.net/news/news-list.ht
     except Exception as e:
         return None, f'讀取 ETtoday 新聞列表時發生錯誤：{str(e)}'
 
-def build_sources_from_ettoday(list_url, limit):
-    candidates, error = fetch_ettoday_candidates(list_url, limit)
+def build_sources_from_ettoday(list_url, scan_limit, deep_read_limit):
+    candidates, error = fetch_ettoday_candidates(list_url, scan_limit)
     if error:
-        return None, error
+        return None, None, error
 
     seen_urls = load_seen_urls()
     updated_seen_urls = set(seen_urls)
-    sources = []
+    filtered = []
+    excluded_high_risk = []
     for item in candidates:
+        filter_result = pre_filter_news_item(item)
+        item.update(filter_result)
+        if filter_result['keep']:
+            filtered.append(item)
+        else:
+            excluded_high_risk.append(item)
+
+    try:
+        deep_read_limit = max(1, min(int(deep_read_limit), 50))
+    except (TypeError, ValueError):
+        deep_read_limit = 25
+
+    deep_read_items = sorted(
+        filtered,
+        key=lambda item: item.get('preliminary_score', 0),
+        reverse=True
+    )[:deep_read_limit]
+
+    sources = []
+    for item in deep_read_items:
         url = item.get('url', '')
         is_new = bool(url and url not in seen_urls)
         content = fetch_news(url) if url else None
@@ -387,8 +487,13 @@ def build_sources_from_ettoday(list_url, limit):
         usable_content = content or f"[內文抓取失敗，AI 不應根據此篇給高分] {item.get('title', '')}"
         source = {
             'id': len(sources) + 1,
-            'title': item.get('title', '') or f'來源 {len(sources) + 1}',
+            'title': item.get('title', '') or f"來源 {len(sources) + 1}",
             'url': url,
+            'category': item.get('category', ''),
+            'time': item.get('time', ''),
+            'preliminary_score': item.get('preliminary_score', 0),
+            'filter_reason': item.get('filter_reason', ''),
+            'risk_flags': item.get('risk_flags', []),
             'content': usable_content[:5000],
         }
         source.update(_source_meta(content or '', url, fetch_status, is_new))
@@ -397,10 +502,25 @@ def build_sources_from_ettoday(list_url, limit):
             updated_seen_urls.add(url)
 
     if not sources:
-        return None, '沒有抓到任何 ETtoday 新聞候選。請稍後再試。'
+        return None, None, '粗篩後沒有可深讀的 ETtoday 新聞，請放寬掃描條件或稍後再試。'
     save_seen_urls(updated_seen_urls)
-    return sources, None
-
+    summary = {
+        'scan_limit': len(candidates),
+        'pre_filter_kept': len(filtered),
+        'deep_read_limit': deep_read_limit,
+        'ai_deep_read_count': len(sources),
+        'excluded_high_risk_count': len(excluded_high_risk),
+        'excluded_high_risk': [
+            {
+                'title': item.get('title', ''),
+                'url': item.get('url', ''),
+                'risk_flags': item.get('risk_flags', []),
+                'filter_reason': item.get('filter_reason', ''),
+            }
+            for item in excluded_high_risk[:20]
+        ],
+    }
+    return sources, summary, None
 def apply_source_quality_rules(result, sources):
     source_map = {int(source.get('id', 0)): source for source in sources}
     topics = result.get('topics') or []
@@ -419,6 +539,13 @@ def apply_source_quality_rules(result, sources):
 
         topic['source_details'] = [source_public_view(source) for source in matched]
         topic['is_new'] = any(source.get('is_new', True) for source in matched) if matched else True
+        if matched:
+            topic['preliminary_score'] = max(int(source.get('preliminary_score') or 0) for source in matched)
+            topic['filter_reason'] = '；'.join(
+                source.get('filter_reason', '') for source in matched if source.get('filter_reason')
+            )
+        topic['rap_fit_reason'] = topic.get('rap_fit_reason') or topic.get('why_it_matters') or topic.get('production_brief') or ''
+        topic['rap_hook'] = topic.get('rap_hook') or topic.get('suggested_hook') or ''
 
         insufficient = [
             source for source in matched
@@ -450,7 +577,7 @@ def run_daily_topics(data):
         topic_count = int(topic_count)
     except (TypeError, ValueError):
         return None, 'topic_count 必須是數字。'
-    topic_count = max(1, min(topic_count, 8))
+    topic_count = max(1, min(topic_count, 10))
 
     package_date = _clean_text(data.get('date'), 30) or datetime.now().strftime('%Y-%m-%d')
     audience = _clean_text(data.get('audience'), 200) or '台灣社群短影音觀眾'
@@ -475,6 +602,9 @@ Editorial rules:
 - If the article body is too thin to support an explanatory news rap, put it in not_recommended.
 - If article_text_length is below 300, do not give high scores. risk_level must be at least medium and risk_notes must include "內文不足，需人工確認".
 - Keep hooks catchy, but do not sacrifice factual accuracy.
+- You do not need to fill all {topic_count} slots. Return only topics that are truly suitable for explanatory rap news.
+- Important news that is too tragic, too sensitive, or not suitable to rap should not be forced into the final list.
+- Final judgment must be based on the full article content provided here, not only on title, category, or preliminary_score.
 
 請只回傳 JSON 物件，不要 Markdown，不要額外說明。格式如下：
 {{
@@ -494,6 +624,8 @@ Editorial rules:
       "risk_notes": "可能踩雷或需查證的地方",
       "source_ids": [1],
       "suggested_hook": "一句適合當 Hook 的中文句子",
+      "rap_fit_reason": "為什麼這題適合用 RAP 說新聞",
+      "rap_hook": "一句好懂但準確的 RAP hook",
       "production_brief": "給製作人的短 brief"
     }}
   ],
@@ -640,13 +772,29 @@ def ettoday_scan():
         return jsonify(body), status
 
     list_url = _clean_text(data.get('list_url'), 1000) or 'https://www.ettoday.net/news/news-list.htm'
-    limit = data.get('limit', 12)
-    sources, source_error = build_sources_from_ettoday(list_url, limit)
+    scan_limit = data.get('scan_limit', data.get('limit', 100))
+    deep_read_limit = data.get('deep_read_limit', 25)
+    topic_count = data.get('topic_count', 5)
+    try:
+        scan_limit = max(1, min(int(scan_limit), 300))
+    except (TypeError, ValueError):
+        scan_limit = 100
+    try:
+        deep_read_limit = max(1, min(int(deep_read_limit), 50))
+    except (TypeError, ValueError):
+        deep_read_limit = 25
+    try:
+        topic_count = max(1, min(int(topic_count), 10))
+    except (TypeError, ValueError):
+        topic_count = 5
+
+    sources, scan_summary, source_error = build_sources_from_ettoday(list_url, scan_limit, deep_read_limit)
     if source_error:
         return jsonify({'error': source_error}), 400
 
     scan_data = dict(data)
     scan_data['sources'] = sources
+    scan_data['topic_count'] = topic_count
     scan_data['focus'] = _clean_text(
         data.get('focus'),
         500
@@ -659,6 +807,8 @@ def ettoday_scan():
         result['scanned_from'] = list_url
         result['scanned_at'] = datetime.now().isoformat(timespec='seconds')
         result['candidate_count'] = len(sources)
+        result['scan_summary'] = scan_summary or {}
+        result['scan_summary']['final_topic_count'] = len(result.get('topics') or [])
         return jsonify(result)
     except json.JSONDecodeError as e:
         return jsonify({'error': f'AI 回傳的選題資料不是有效 JSON，請重新掃描。技術細節：{str(e)}'}), 500

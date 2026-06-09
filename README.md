@@ -33,16 +33,20 @@ Content-Type: application/json
 ### 每日 RAP 選題
 
 1. 在「每日 RAP 選題」區塊確認 ETtoday 列表網址，預設是 `https://www.ettoday.net/news/news-list.htm`。
-2. 設定掃描間隔分鐘與每次讀取篇數。
-3. 點「立即掃 ETtoday」會呼叫 `POST /api/ettoday_scan`，後端會抓新聞列表、逐篇讀內文，再交給 AI 選題。
+2. 設定三個掃描參數：
+   - `scan_limit`：掃描列表數，預設 100，最大 300。
+   - `deep_read_limit`：AI 深讀數，預設 25，最大 50。
+   - `topic_count`：最終候選數，預設 5，最大 10。
+3. 點「立即掃 ETtoday」會呼叫 `POST /api/ettoday_scan`，後端會先抓新聞列表做快速粗篩，再只對前幾名抓全文，最後交給 AI 選題。
 4. 點「啟動定時通知」後，頁面會每隔指定分鐘自動掃描一次。掃到候選題時會用瀏覽器通知提醒你回頁面審核。
-5. 頁面會顯示排名、標題、RAP 分數、建議曲風、適合原因、風險等級、風險說明與原文網址。
-6. 每個選題會顯示抓到的內文字數、抓取狀態、內文預覽與是否為新新聞。
-7. 若內文少於 300 字，頁面會顯示「內文不足」，AI 分數會保守處理，風險至少為 `medium`。
-8. 「只顯示新新聞」預設開啟；瀏覽器通知也只通知新新聞。
-9. 點單一選題旁的「產製作包」，前端會呼叫 `POST /api/production_package`。
-10. 製作包會顯示歌詞、Suno prompt、影像 prompt、YouTube 標題與風險提醒。
-11. 手動文字框仍可補充新聞，每行一則。格式可用網址，或 `標題｜網址｜內文`。
+5. 頁面會顯示掃描摘要：掃描列表數、粗篩保留數、AI 深讀數、最終候選數、排除高風險數。
+6. 每張選題卡會顯示排名、標題、RAP 分數、粗篩分數、粗篩理由、RAP 適合原因、RAP Hook、建議曲風、風險等級、風險說明與原文網址。
+7. 每個選題會顯示抓到的內文字數、抓取狀態、內文預覽與是否為新新聞。
+8. 若內文少於 300 字，頁面會顯示「內文不足」，AI 分數會保守處理，風險至少為 `medium`。
+9. 「只顯示新新聞」預設開啟；瀏覽器通知也只通知新新聞。
+10. 點單一選題旁的「產製作包」，前端會呼叫 `POST /api/production_package`。
+11. 製作包會顯示歌詞、Suno prompt、影像 prompt、YouTube 標題與風險提醒。
+12. 手動文字框仍可補充新聞，每行一則。格式可用網址，或 `標題｜網址｜內文`。
 
 ### 單篇新聞產製
 
@@ -106,10 +110,20 @@ Content-Type: application/json
 ```json
 {
   "list_url": "https://www.ettoday.net/news/news-list.htm",
-  "limit": 12,
+  "scan_limit": 100,
+  "deep_read_limit": 25,
   "topic_count": 5
 }
 ```
+
+流程：
+
+1. 從 ETtoday 列表抓 `scan_limit` 則新聞的 `title`、`url`、`category`、`time`。
+2. 用 `pre_filter_news_item()` 做快速粗篩，不抓全文。
+3. 依標題畫面感、反差、數字、政策/科技/生活/消費/健康/國際/財經等可解釋題材加分。
+4. 命中災難、死亡、性犯罪、兒少、自殺、重大刑案、家屬悲痛等高風險關鍵字時排除。
+5. 取粗篩分數最高的 `deep_read_limit` 則抓全文。
+6. AI 只針對深讀後的全文做最終 RAP 選題，最多回 `topic_count` 則，也可以少於 `topic_count`。
 
 回傳格式與 `/api/daily_topics` 類似，另外包含：
 
@@ -117,7 +131,15 @@ Content-Type: application/json
 {
   "scanned_from": "https://www.ettoday.net/news/news-list.htm",
   "scanned_at": "2026-06-08T10:00:00",
-  "candidate_count": 12
+  "candidate_count": 25,
+  "scan_summary": {
+    "scan_limit": 100,
+    "pre_filter_kept": 72,
+    "deep_read_limit": 25,
+    "ai_deep_read_count": 25,
+    "final_topic_count": 5,
+    "excluded_high_risk_count": 8
+  }
 }
 ```
 
@@ -128,6 +150,11 @@ Content-Type: application/json
   "id": 1,
   "title": "新聞標題",
   "source_url": "https://www.ettoday.net/news/example.htm",
+  "category": "財經",
+  "time": "2026/06/08 12:00",
+  "preliminary_score": 82,
+  "filter_reason": "標題含數字，適合做資訊節奏；屬於可解釋題材",
+  "risk_flags": [],
   "article_text_length": 1200,
   "content_preview": "新聞內文前 120 字...",
   "fetch_status": "success",
